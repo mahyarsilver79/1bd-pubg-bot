@@ -84,14 +84,14 @@ def create_user(telegram_id, username=None, first_name=None):
             (telegram_id, username, first_name)
             VALUES (?, ?, ?)
         """, (telegram_id, username, first_name))
-
         conn.commit()
 
 
 def get_user(telegram_id):
     with closing(get_connection()) as conn:
         return conn.execute("""
-            SELECT * FROM users
+            SELECT *
+            FROM users
             WHERE telegram_id = ?
         """, (telegram_id,)).fetchone()
 
@@ -107,41 +107,58 @@ def get_wallet(telegram_id):
 
 def add_wallet(telegram_id, amount, description=""):
     with closing(get_connection()) as conn:
+
+        user = conn.execute("""
+            SELECT id
+            FROM users
+            WHERE telegram_id = ?
+        """, (telegram_id,)).fetchone()
+
+        if not user:
+            return False
+
         conn.execute("""
             UPDATE users
             SET wallet = wallet + ?
             WHERE telegram_id = ?
         """, (amount, telegram_id))
 
-        user = conn.execute("""
-            SELECT id FROM users
-            WHERE telegram_id = ?
-        """, (telegram_id,)).fetchone()
-
-        if user:
-            conn.execute("""
-                INSERT INTO transactions
-                (user_id, amount, type, description)
-                VALUES (?, ?, ?, ?)
-            """, (
-                user["id"],
-                amount,
-                "wallet_credit",
-                description
-            ))
+        conn.execute("""
+            INSERT INTO transactions
+            (user_id, amount, type, description)
+            VALUES (?, ?, ?, ?)
+        """, (
+            user["id"],
+            amount,
+            "wallet",
+            description
+        ))
 
         conn.commit()
+
+        return True
 
 
 def create_match(name):
     with closing(get_connection()) as conn:
+
         cursor = conn.execute("""
             INSERT INTO matches (name)
             VALUES (?)
         """, (name,))
 
         conn.commit()
+
         return cursor.lastrowid
+
+
+def get_matches():
+    with closing(get_connection()) as conn:
+        return conn.execute("""
+            SELECT *
+            FROM matches
+            ORDER BY id DESC
+        """).fetchall()
 
 
 def create_room(
@@ -155,7 +172,9 @@ def create_room(
     second_prize=200000,
     third_prize=100000
 ):
+
     with closing(get_connection()) as conn:
+
         cursor = conn.execute("""
             INSERT INTO rooms (
                 match_id,
@@ -182,6 +201,7 @@ def create_room(
         ))
 
         conn.commit()
+
         return cursor.lastrowid
 
 
@@ -198,6 +218,7 @@ def get_open_rooms(match_id):
 
 def get_room_player_count(room_id):
     with closing(get_connection()) as conn:
+
         result = conn.execute("""
             SELECT COUNT(*) AS count
             FROM registrations
@@ -208,66 +229,13 @@ def get_room_player_count(room_id):
         return result["count"]
 
 
-def find_available_room(match_id):
-    rooms = get_open_rooms(match_id)
-
-    for room in rooms:
-        count = get_room_player_count(room["id"])
-
-        if count < room["capacity"]:
-            return room
-
-    return None
-
-
-def create_squad(room_id):
-    with closing(get_connection()) as conn:
-        result = conn.execute("""
-            SELECT MAX(squad_number) AS max_number
-            FROM squads
-            WHERE room_id = ?
-        """, (room_id,)).fetchone()
-
-        next_number = (result["max_number"] or 0) + 1
-
-        cursor = conn.execute("""
-            INSERT INTO squads
-            (room_id, squad_number)
-            VALUES (?, ?)
-        """, (room_id, next_number))
-
-        conn.commit()
-        return cursor.lastrowid
-
-
-def get_available_squad(room_id):
-    with closing(get_connection()) as conn:
-        squads = conn.execute("""
-            SELECT *
-            FROM squads
-            WHERE room_id = ?
-            ORDER BY squad_number ASC
-        """, (room_id,)).fetchall()
-
-        for squad in squads:
-            count = conn.execute("""
-                SELECT COUNT(*) AS count
-                FROM registrations
-                WHERE squad_id = ?
-                AND status = 'active'
-            """, (squad["id"],)).fetchone()["count"]
-
-            if count < 4:
-                return squad
-
-    return None
-
-
 def register_player(telegram_id, room_id):
+
     with closing(get_connection()) as conn:
 
         user = conn.execute("""
-            SELECT id FROM users
+            SELECT id
+            FROM users
             WHERE telegram_id = ?
         """, (telegram_id,)).fetchone()
 
@@ -289,6 +257,7 @@ def register_player(telegram_id, room_id):
             SELECT *
             FROM rooms
             WHERE id = ?
+            AND status = 'open'
         """, (room_id,)).fetchone()
 
         if not room:
@@ -304,29 +273,54 @@ def register_player(telegram_id, room_id):
         if count >= room["capacity"]:
             return False, "room_full"
 
-        squad = get_available_squad(room_id)
+        squad = None
+
+        squads = conn.execute("""
+            SELECT *
+            FROM squads
+            WHERE room_id = ?
+            ORDER BY squad_number ASC
+        """, (room_id,)).fetchall()
+
+        for item in squads:
+
+            members = conn.execute("""
+                SELECT COUNT(*) AS count
+                FROM registrations
+                WHERE squad_id = ?
+                AND status = 'active'
+            """, (item["id"],)).fetchone()["count"]
+
+            if members < 4:
+                squad = item
+                break
 
         if not squad:
-            cursor = conn.execute("""
+
+            max_number = conn.execute("""
                 SELECT MAX(squad_number) AS max_number
                 FROM squads
                 WHERE room_id = ?
-            """, (room_id,))
-
-            max_number = cursor.fetchone()["max_number"] or 0
+            """, (room_id,)).fetchone()["max_number"] or 0
 
             conn.execute("""
                 INSERT INTO squads
                 (room_id, squad_number)
                 VALUES (?, ?)
-            """, (room_id, max_number + 1))
+            """, (
+                room_id,
+                max_number + 1
+            ))
 
             squad = conn.execute("""
                 SELECT *
                 FROM squads
                 WHERE room_id = ?
                 AND squad_number = ?
-            """, (room_id, max_number + 1)).fetchone()
+            """, (
+                room_id,
+                max_number + 1
+            )).fetchone()
 
         conn.execute("""
             INSERT INTO registrations
@@ -343,68 +337,36 @@ def register_player(telegram_id, room_id):
         return True, squad["squad_number"]
 
 
-def cancel_registration(telegram_id, room_id):
+def get_user_matches(telegram_id):
+
     with closing(get_connection()) as conn:
 
-        user = conn.execute("""
-            SELECT id
-            FROM users
-            WHERE telegram_id = ?
-        """, (telegram_id,)).fetchone()
+        return conn.execute("""
+            SELECT
+                matches.name AS match_name,
+                rooms.name AS room_name,
+                rooms.start_time,
+                squads.squad_number
 
-        if not user:
-            return False
-
-        registration = conn.execute("""
-            SELECT id
             FROM registrations
-            WHERE user_id = ?
-            AND room_id = ?
-            AND status = 'active'
-        """, (
-            user["id"],
-            room_id
-        )).fetchone()
 
-        if not registration:
-            return False
+            JOIN users
+                ON users.id = registrations.user_id
 
-        room = conn.execute("""
-            SELECT entry_fee
-            FROM rooms
-            WHERE id = ?
-        """, (room_id,)).fetchone()
+            JOIN rooms
+                ON rooms.id = registrations.room_id
 
-        conn.execute("""
-            UPDATE registrations
-            SET status = 'cancelled'
-            WHERE id = ?
-        """, (registration["id"],))
+            JOIN matches
+                ON matches.id = rooms.match_id
 
-        conn.execute("""
-            UPDATE users
-            SET wallet = wallet + ?
-            WHERE id = ?
-        """, (
-            room["entry_fee"],
-            user["id"]
-        ))
+            LEFT JOIN squads
+                ON squads.id = registrations.squad_id
 
-        conn.execute("""
-            INSERT INTO transactions
-            (user_id, amount, type, description)
-            VALUES (?, ?, ?, ?)
-        """, (
-            user["id"],
-            room["entry_fee"],
-            "cancel_refund",
-            "Refund after cancellation"
-        ))
+            WHERE users.telegram_id = ?
+            AND registrations.status = 'active'
 
-        conn.commit()
-
-        return True
+            ORDER BY registrations.id DESC
+        """, (telegram_id,)).fetchall()
 
 
-# Initialize database when imported
 init_db()

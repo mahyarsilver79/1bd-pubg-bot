@@ -13,7 +13,7 @@ def get_connection():
 
 
 # =========================================================
-# DATABASE INIT
+# DATABASE
 # =========================================================
 
 def init_db():
@@ -21,7 +21,6 @@ def init_db():
     with closing(get_connection()) as conn:
 
         conn.executescript("""
-
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             telegram_id INTEGER UNIQUE NOT NULL,
@@ -32,42 +31,30 @@ def init_db():
         );
 
 
-        CREATE TABLE IF NOT EXISTS matches (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            match_date TEXT,
-            match_time TEXT,
-            status TEXT DEFAULT 'open',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-
-
         CREATE TABLE IF NOT EXISTS rooms (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
 
-            match_id INTEGER NOT NULL,
-
             name TEXT NOT NULL,
 
-            capacity INTEGER DEFAULT 64,
+            room_date TEXT NOT NULL,
 
-            entry_fee INTEGER DEFAULT 0,
+            room_time TEXT NOT NULL,
 
-            kill_prize INTEGER DEFAULT 0,
+            capacity INTEGER NOT NULL DEFAULT 64,
 
-            first_prize INTEGER DEFAULT 0,
+            entry_fee INTEGER NOT NULL DEFAULT 0,
 
-            second_prize INTEGER DEFAULT 0,
+            kill_prize INTEGER NOT NULL DEFAULT 0,
 
-            third_prize INTEGER DEFAULT 0,
+            first_prize INTEGER NOT NULL DEFAULT 0,
 
-            status TEXT DEFAULT 'open',
+            second_prize INTEGER NOT NULL DEFAULT 0,
 
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            third_prize INTEGER NOT NULL DEFAULT 0,
 
-            FOREIGN KEY (match_id)
-                REFERENCES matches(id)
-                ON DELETE CASCADE
+            status TEXT NOT NULL DEFAULT 'open',
+
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
 
@@ -93,7 +80,7 @@ def init_db():
 
             squad_id INTEGER,
 
-            status TEXT DEFAULT 'active',
+            status TEXT NOT NULL DEFAULT 'active',
 
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
@@ -128,29 +115,7 @@ def init_db():
                 REFERENCES users(id)
                 ON DELETE CASCADE
         );
-
         """)
-
-        # اضافه کردن ستون‌های جدید به دیتابیس‌های قدیمی
-        columns = conn.execute("""
-            PRAGMA table_info(matches)
-        """).fetchall()
-
-        column_names = [column["name"] for column in columns]
-
-        if "match_date" not in column_names:
-
-            conn.execute("""
-                ALTER TABLE matches
-                ADD COLUMN match_date TEXT
-            """)
-
-        if "match_time" not in column_names:
-
-            conn.execute("""
-                ALTER TABLE matches
-                ADD COLUMN match_time TEXT
-            """)
 
         conn.commit()
 
@@ -260,94 +225,13 @@ def add_wallet(
 
 
 # =========================================================
-# MATCHES
-# =========================================================
-
-def create_match(
-    name,
-    match_date=None,
-    match_time=None
-):
-
-    with closing(get_connection()) as conn:
-
-        cursor = conn.execute("""
-            INSERT INTO matches
-            (
-                name,
-                match_date,
-                match_time
-            )
-            VALUES (?, ?, ?)
-        """, (
-            name,
-            match_date,
-            match_time
-        ))
-
-        conn.commit()
-
-        return cursor.lastrowid
-
-
-def get_match(match_id):
-
-    with closing(get_connection()) as conn:
-
-        return conn.execute("""
-            SELECT *
-            FROM matches
-            WHERE id = ?
-        """, (
-            match_id,
-        )).fetchone()
-
-
-def get_matches():
-
-    with closing(get_connection()) as conn:
-
-        return conn.execute("""
-            SELECT *
-            FROM matches
-            ORDER BY id DESC
-        """).fetchall()
-
-
-def get_open_matches():
-
-    with closing(get_connection()) as conn:
-
-        return conn.execute("""
-            SELECT *
-            FROM matches
-            WHERE status = 'open'
-            ORDER BY id ASC
-        """).fetchall()
-
-
-def close_match(match_id):
-
-    with closing(get_connection()) as conn:
-
-        conn.execute("""
-            UPDATE matches
-            SET status = 'closed'
-            WHERE id = ?
-        """, (
-            match_id,
-        ))
-
-        conn.commit()
-
-
-# =========================================================
-# ROOMS
+# CREATE ROOM
 # =========================================================
 
 def create_room(
-    match_id,
     name,
+    room_date,
+    room_time,
     capacity,
     entry_fee,
     kill_prize,
@@ -361,8 +245,9 @@ def create_room(
         cursor = conn.execute("""
             INSERT INTO rooms
             (
-                match_id,
                 name,
+                room_date,
+                room_time,
                 capacity,
                 entry_fee,
                 kill_prize,
@@ -370,10 +255,12 @@ def create_room(
                 second_prize,
                 third_prize
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            match_id,
             name,
+            room_date,
+            room_time,
             capacity,
             entry_fee,
             kill_prize,
@@ -387,6 +274,35 @@ def create_room(
         return cursor.lastrowid
 
 
+# =========================================================
+# GET ROOMS
+# =========================================================
+
+def get_rooms():
+
+    with closing(get_connection()) as conn:
+
+        return conn.execute("""
+            SELECT *
+            FROM rooms
+            ORDER BY room_date ASC, room_time ASC, id ASC
+        """).fetchall()
+
+
+def get_open_rooms():
+
+    with closing(get_connection()) as conn:
+
+        return conn.execute("""
+            SELECT *
+            FROM rooms
+
+            WHERE status = 'open'
+
+            ORDER BY room_date ASC, room_time ASC, id ASC
+        """).fetchall()
+
+
 def get_room(room_id):
 
     with closing(get_connection()) as conn:
@@ -394,46 +310,142 @@ def get_room(room_id):
         return conn.execute("""
             SELECT *
             FROM rooms
+
             WHERE id = ?
         """, (
             room_id,
         )).fetchone()
 
 
-def get_open_rooms(match_id):
+# =========================================================
+# UPDATE ROOM
+# =========================================================
+
+def update_room(
+    room_id,
+    name=None,
+    room_date=None,
+    room_time=None,
+    capacity=None,
+    entry_fee=None,
+    kill_prize=None,
+    first_prize=None,
+    second_prize=None,
+    third_prize=None,
+    status=None
+):
+
+    fields = []
+    values = []
+
+    if name is not None:
+        fields.append("name = ?")
+        values.append(name)
+
+    if room_date is not None:
+        fields.append("room_date = ?")
+        values.append(room_date)
+
+    if room_time is not None:
+        fields.append("room_time = ?")
+        values.append(room_time)
+
+    if capacity is not None:
+        fields.append("capacity = ?")
+        values.append(capacity)
+
+    if entry_fee is not None:
+        fields.append("entry_fee = ?")
+        values.append(entry_fee)
+
+    if kill_prize is not None:
+        fields.append("kill_prize = ?")
+        values.append(kill_prize)
+
+    if first_prize is not None:
+        fields.append("first_prize = ?")
+        values.append(first_prize)
+
+    if second_prize is not None:
+        fields.append("second_prize = ?")
+        values.append(second_prize)
+
+    if third_prize is not None:
+        fields.append("third_prize = ?")
+        values.append(third_prize)
+
+    if status is not None:
+        fields.append("status = ?")
+        values.append(status)
+
+    if not fields:
+        return False
+
+    values.append(room_id)
 
     with closing(get_connection()) as conn:
 
-        return conn.execute("""
-            SELECT *
-            FROM rooms
-            WHERE match_id = ?
+        conn.execute(
+            f"""
+            UPDATE rooms
 
-            AND status = 'open'
+            SET {", ".join(fields)}
 
-            ORDER BY id ASC
-        """, (
-            match_id,
-        )).fetchall()
+            WHERE id = ?
+            """,
+            values
+        )
 
+        conn.commit()
 
-def get_match_rooms(match_id):
-
-    with closing(get_connection()) as conn:
-
-        return conn.execute("""
-            SELECT *
-            FROM rooms
-            WHERE match_id = ?
-
-            ORDER BY id ASC
-        """, (
-            match_id,
-        )).fetchall()
+    return True
 
 
 # =========================================================
-# ROOM STATISTICS
+# DELETE ROOM
+# =========================================================
+
+def delete_room(room_id):
+
+    with closing(get_connection()) as conn:
+
+        conn.execute("""
+            DELETE FROM rooms
+            WHERE id = ?
+        """, (
+            room_id,
+        ))
+
+        conn.commit()
+
+
+# =========================================================
+# RESET ROOM
+# =========================================================
+
+def reset_room(room_id):
+
+    with closing(get_connection()) as conn:
+
+        conn.execute("""
+            DELETE FROM registrations
+            WHERE room_id = ?
+        """, (
+            room_id,
+        ))
+
+        conn.execute("""
+            DELETE FROM squads
+            WHERE room_id = ?
+        """, (
+            room_id,
+        ))
+
+        conn.commit()
+
+
+# =========================================================
+# ROOM PLAYER COUNT
 # =========================================================
 
 def get_room_player_count(room_id):
@@ -455,6 +467,10 @@ def get_room_player_count(room_id):
         return result["count"]
 
 
+# =========================================================
+# ROOM REVENUE
+# =========================================================
+
 def get_room_revenue(room_id):
 
     room = get_room(room_id)
@@ -467,6 +483,10 @@ def get_room_revenue(room_id):
     return players * room["entry_fee"]
 
 
+# =========================================================
+# ROOM PRIZES
+# =========================================================
+
 def get_room_total_prizes(room_id):
 
     room = get_room(room_id)
@@ -476,7 +496,9 @@ def get_room_total_prizes(room_id):
 
     players = get_room_player_count(room_id)
 
-    kill_prizes = players * room["kill_prize"]
+    kill_prizes = (
+        players * room["kill_prize"]
+    )
 
     team_prizes = (
         room["first_prize"]
@@ -487,81 +509,21 @@ def get_room_total_prizes(room_id):
     return kill_prizes + team_prizes
 
 
+# =========================================================
+# ROOM PROFIT
+# =========================================================
+
 def get_room_profit(room_id):
 
-    revenue = get_room_revenue(room_id)
+    revenue = get_room_revenue(
+        room_id
+    )
 
-    prizes = get_room_total_prizes(room_id)
+    prizes = get_room_total_prizes(
+        room_id
+    )
 
     return revenue - prizes
-
-
-# =========================================================
-# MATCH FINANCIAL STATISTICS
-# =========================================================
-
-def get_match_financials(match_id):
-
-    rooms = get_match_rooms(match_id)
-
-    total_revenue = 0
-    total_prizes = 0
-
-    for room in rooms:
-
-        players = get_room_player_count(
-            room["id"]
-        )
-
-        revenue = (
-            players
-            * room["entry_fee"]
-        )
-
-        kill_prizes = (
-            players
-            * room["kill_prize"]
-        )
-
-        team_prizes = (
-            room["first_prize"]
-            + room["second_prize"]
-            + room["third_prize"]
-        )
-
-        total_revenue += revenue
-
-        total_prizes += (
-            kill_prizes
-            + team_prizes
-        )
-
-    return {
-        "revenue": total_revenue,
-        "prizes": total_prizes,
-        "profit": total_revenue - total_prizes,
-    }
-
-
-# =========================================================
-# FIND AVAILABLE ROOM
-# =========================================================
-
-def find_available_room(match_id):
-
-    rooms = get_open_rooms(match_id)
-
-    for room in rooms:
-
-        players = get_room_player_count(
-            room["id"]
-        )
-
-        if players < room["capacity"]:
-
-            return room
-
-    return None
 
 
 # =========================================================
@@ -592,6 +554,7 @@ def create_squad(room_id):
                 room_id,
                 squad_number
             )
+
             VALUES (?, ?)
         """, (
             room_id,
@@ -640,7 +603,7 @@ def get_available_squad(room_id):
 
 
 # =========================================================
-# REGISTRATION
+# REGISTER PLAYER
 # =========================================================
 
 def register_player(
@@ -664,6 +627,7 @@ def register_player(
 
             return False, "user_not_found"
 
+
         existing = conn.execute("""
             SELECT id
 
@@ -683,12 +647,15 @@ def register_player(
 
             return False, "already_registered"
 
+
         room = conn.execute("""
             SELECT *
 
             FROM rooms
 
             WHERE id = ?
+
+            AND status = 'open'
         """, (
             room_id,
         )).fetchone()
@@ -697,7 +664,8 @@ def register_player(
 
             return False, "room_not_found"
 
-        count = conn.execute("""
+
+        player_count = conn.execute("""
             SELECT COUNT(*) AS count
 
             FROM registrations
@@ -709,15 +677,54 @@ def register_player(
             room_id,
         )).fetchone()["count"]
 
-        if count >= room["capacity"]:
+
+        if player_count >= room["capacity"]:
 
             return False, "room_full"
 
-        squad = get_available_squad(room_id)
+
+        # پیدا کردن تیم آزاد
+
+        squad = None
+
+        squads = conn.execute("""
+            SELECT *
+            FROM squads
+
+            WHERE room_id = ?
+
+            ORDER BY squad_number ASC
+        """, (
+            room_id,
+        )).fetchall()
+
+
+        for item in squads:
+
+            count = conn.execute("""
+                SELECT COUNT(*) AS count
+
+                FROM registrations
+
+                WHERE squad_id = ?
+
+                AND status = 'active'
+            """, (
+                item["id"],
+            )).fetchone()["count"]
+
+            if count < 4:
+
+                squad = item
+                break
+
+
+        # اگر تیم آزاد وجود نداشت
+        # تیم جدید بساز
 
         if not squad:
 
-            result = conn.execute("""
+            max_number = conn.execute("""
                 SELECT MAX(squad_number) AS max_number
 
                 FROM squads
@@ -725,36 +732,39 @@ def register_player(
                 WHERE room_id = ?
             """, (
                 room_id,
-            )).fetchone()
+            )).fetchone()["max_number"]
 
-            max_number = (
-                result["max_number"] or 0
-            )
+            next_number = (
+                max_number or 0
+            ) + 1
 
-            conn.execute("""
+
+            cursor = conn.execute("""
                 INSERT INTO squads
                 (
                     room_id,
                     squad_number
                 )
+
                 VALUES (?, ?)
             """, (
                 room_id,
-                max_number + 1
+                next_number
             ))
+
 
             squad = conn.execute("""
                 SELECT *
 
                 FROM squads
 
-                WHERE room_id = ?
-
-                AND squad_number = ?
+                WHERE id = ?
             """, (
-                room_id,
-                max_number + 1
+                cursor.lastrowid,
             )).fetchone()
+
+
+        # ثبت بازیکن
 
         conn.execute("""
             INSERT INTO registrations
@@ -763,6 +773,7 @@ def register_player(
                 room_id,
                 squad_id
             )
+
             VALUES (?, ?, ?)
         """, (
             user["id"],
@@ -770,7 +781,9 @@ def register_player(
             squad["id"]
         ))
 
+
         conn.commit()
+
 
         return True, squad["squad_number"]
 
@@ -799,6 +812,7 @@ def cancel_registration(
         if not user:
             return False
 
+
         registration = conn.execute("""
             SELECT id
 
@@ -817,6 +831,7 @@ def cancel_registration(
         if not registration:
             return False
 
+
         room = conn.execute("""
             SELECT entry_fee
 
@@ -827,6 +842,10 @@ def cancel_registration(
             room_id,
         )).fetchone()
 
+        if not room:
+            return False
+
+
         conn.execute("""
             UPDATE registrations
 
@@ -836,6 +855,7 @@ def cancel_registration(
         """, (
             registration["id"],
         ))
+
 
         conn.execute("""
             UPDATE users
@@ -848,6 +868,7 @@ def cancel_registration(
             user["id"]
         ))
 
+
         conn.execute("""
             INSERT INTO transactions
             (
@@ -856,6 +877,7 @@ def cancel_registration(
                 type,
                 description
             )
+
             VALUES (?, ?, ?, ?)
         """, (
             user["id"],
@@ -864,31 +886,42 @@ def cancel_registration(
             "Refund after cancellation"
         ))
 
+
         conn.commit()
 
         return True
 
 
 # =========================================================
-# USER MATCHES
+# USER ROOMS
 # =========================================================
 
-def get_user_matches(telegram_id):
+def get_user_rooms(telegram_id):
 
     with closing(get_connection()) as conn:
 
         return conn.execute("""
             SELECT
 
-                matches.name AS match_name,
-
-                matches.match_date,
-
-                matches.match_time,
+                rooms.id AS room_id,
 
                 rooms.name AS room_name,
 
-                rooms.id AS room_id,
+                rooms.room_date,
+
+                rooms.room_time,
+
+                rooms.capacity,
+
+                rooms.entry_fee,
+
+                rooms.kill_prize,
+
+                rooms.first_prize,
+
+                rooms.second_prize,
+
+                rooms.third_prize,
 
                 squads.squad_number
 
@@ -900,9 +933,6 @@ def get_user_matches(telegram_id):
             JOIN rooms
                 ON rooms.id = registrations.room_id
 
-            JOIN matches
-                ON matches.id = rooms.match_id
-
             LEFT JOIN squads
                 ON squads.id = registrations.squad_id
 
@@ -911,7 +941,6 @@ def get_user_matches(telegram_id):
             AND registrations.status = 'active'
 
             ORDER BY registrations.id DESC
-
         """, (
             telegram_id,
         )).fetchall()

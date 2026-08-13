@@ -1,5 +1,8 @@
 import os
 
+print("🔥 ADMIN VERSION 999")
+
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
@@ -17,18 +20,51 @@ def is_admin(user_id):
 
 def admin_menu():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎮 ساخت مسابقه", callback_data="adm_create_match")],
-        [InlineKeyboardButton("🏠 مدیریت روم‌ها", callback_data="adm_rooms")],
-        [InlineKeyboardButton("👥 بازیکنان", callback_data="adm_players")],
-        [InlineKeyboardButton("💰 کیف پول", callback_data="adm_wallets")],
-        [InlineKeyboardButton("📊 آمار", callback_data="adm_stats")],
+        [
+            InlineKeyboardButton(
+                "🎮 ساخت مسابقه",
+                callback_data="adm_create_match"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🏠 ساخت روم",
+                callback_data="adm_create_room"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "📋 مسابقات",
+                callback_data="adm_matches"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "👥 بازیکنان",
+                callback_data="adm_players"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "💰 کیف پول",
+                callback_data="adm_wallets"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "📊 آمار",
+                callback_data="adm_stats"
+            )
+        ],
     ])
 
 
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not is_admin(update.effective_user.id):
-        await update.message.reply_text("⛔ دسترسی غیرمجاز.")
+        await update.message.reply_text(
+            "⛔ دسترسی غیرمجاز."
+        )
         return
 
     context.user_data.clear()
@@ -40,26 +76,43 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def admin_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def admin_button_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
     query = update.callback_query
+
     await query.answer()
 
     if not is_admin(query.from_user.id):
-        await query.edit_message_text("⛔ دسترسی غیرمجاز.")
+
+        await query.edit_message_text(
+            "⛔ دسترسی غیرمجاز."
+        )
+
         return
+
+
+    # =========================
+    # ساخت مسابقه
+    # =========================
 
     if query.data == "adm_create_match":
 
         context.user_data.clear()
-        context.user_data["admin_state"] = "waiting_match_name"
+
+        context.user_data["admin_state"] = (
+            "waiting_match_name"
+        )
 
         await query.edit_message_text(
             "🎮 ساخت مسابقه\n\n"
-            "✏️ لطفاً اسم مسابقه را وارد کن:\n\n"
+            "✏️ اسم مسابقه را وارد کن:\n\n"
             "مثال:\n"
             "مسابقه جمعه شب\n"
-            "یا حتی:\n"
+            "PUBG NIGHT\n"
+            "یا فقط:\n"
             "1",
             reply_markup=InlineKeyboardMarkup([
                 [
@@ -71,7 +124,108 @@ async def admin_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             ])
         )
 
-    elif query.data == "adm_cancel":
+        return
+
+
+    # =========================
+    # ساخت روم
+    # =========================
+
+    if query.data == "adm_create_room":
+
+        await query.edit_message_text(
+            "🏠 ساخت روم\n\n"
+            "ابتدا یک مسابقه بساز.",
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton(
+                        "🔙 پنل مدیریت",
+                        callback_data="adm_back"
+                    )
+                ]
+            ])
+        )
+
+        return
+
+
+    # =========================
+    # مسابقات
+    # =========================
+
+    if query.data == "adm_matches":
+
+        await query.edit_message_text(
+            "📋 مسابقات",
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton(
+                        "➕ ساخت مسابقه",
+                        callback_data="adm_create_match"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "🔙 پنل مدیریت",
+                        callback_data="adm_back"
+                    )
+                ]
+            ])
+        )
+
+        return
+
+
+    # =========================
+    # بازیکنان
+    # =========================
+
+    if query.data == "adm_players":
+
+        await query.edit_message_text(
+            "👥 بازیکنان\n\n"
+            "این بخش بعداً تکمیل می‌شود.",
+            reply_markup=back_button()
+        )
+
+        return
+
+
+    # =========================
+    # کیف پول
+    # =========================
+
+    if query.data == "adm_wallets":
+
+        await query.edit_message_text(
+            "💰 کیف پول\n\n"
+            "این بخش بعداً تکمیل می‌شود.",
+            reply_markup=back_button()
+        )
+
+        return
+
+
+    # =========================
+    # آمار
+    # =========================
+
+    if query.data == "adm_stats":
+
+        await query.edit_message_text(
+            "📊 آمار\n\n"
+            "این بخش بعداً تکمیل می‌شود.",
+            reply_markup=back_button()
+        )
+
+        return
+
+
+    # =========================
+    # لغو
+    # =========================
+
+    if query.data == "adm_cancel":
 
         context.user_data.clear()
 
@@ -80,114 +234,94 @@ async def admin_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             reply_markup=admin_menu()
         )
 
-    elif query.data == "adm_rooms":
+        return
 
-        await query.edit_message_text(
-            "🏠 مدیریت روم‌ها\n\n"
-            "این بخش بعد از ساخت مسابقه فعال می‌شود.",
-            reply_markup=InlineKeyboardMarkup([
-                [
-                    InlineKeyboardButton(
-                        "🔙 پنل مدیریت",
-                        callback_data="adm_back"
-                    )
-                ]
-            ])
-        )
 
-    elif query.data == "adm_players":
+    # =========================
+    # برگشت
+    # =========================
 
-        await query.edit_message_text(
-            "👥 بازیکنان\n\n"
-            "این بخش به‌زودی فعال می‌شود.",
-            reply_markup=InlineKeyboardMarkup([
-                [
-                    InlineKeyboardButton(
-                        "🔙 پنل مدیریت",
-                        callback_data="adm_back"
-                    )
-                ]
-            ])
-        )
-
-    elif query.data == "adm_wallets":
-
-        await query.edit_message_text(
-            "💰 کیف پول\n\n"
-            "این بخش به‌زودی فعال می‌شود.",
-            reply_markup=InlineKeyboardMarkup([
-                [
-                    InlineKeyboardButton(
-                        "🔙 پنل مدیریت",
-                        callback_data="adm_back"
-                    )
-                ]
-            ])
-        )
-
-    elif query.data == "adm_stats":
-
-        await query.edit_message_text(
-            "📊 آمار\n\n"
-            "این بخش به‌زودی فعال می‌شود.",
-            reply_markup=InlineKeyboardMarkup([
-                [
-                    InlineKeyboardButton(
-                        "🔙 پنل مدیریت",
-                        callback_data="adm_back"
-                    )
-                ]
-            ])
-        )
-
-    elif query.data == "adm_back":
+    if query.data == "adm_back":
 
         context.user_data.clear()
 
         await query.edit_message_text(
-            "👑 پنل مدیریت 1BD PUBG\n\n"
-            "یک گزینه را انتخاب کن:",
+            "👑 پنل مدیریت 1BD PUBG",
             reply_markup=admin_menu()
         )
 
+        return
 
-async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+async def handle_admin_message(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
     if not is_admin(update.effective_user.id):
         return False
 
-    if context.user_data.get("admin_state") != "waiting_match_name":
-        return False
 
-    name = update.message.text.strip()
+    state = context.user_data.get(
+        "admin_state"
+    )
 
-    if not name:
-        await update.message.reply_text(
-            "❌ اسم مسابقه خالی است.\n"
-            "لطفاً اسم مسابقه را وارد کن."
-        )
+
+    # =========================
+    # اسم مسابقه
+    # =========================
+
+    if state == "waiting_match_name":
+
+        name = update.message.text.strip()
+
+        if not name:
+
+            await update.message.reply_text(
+                "❌ اسم مسابقه نمی‌تواند خالی باشد."
+            )
+
+            return True
+
+
+        try:
+
+            match_id = create_match(name)
+
+            context.user_data.clear()
+
+            await update.message.reply_text(
+                "✅ مسابقه ساخته شد!\n\n"
+                f"🎮 اسم مسابقه: {name}\n"
+                f"🆔 ID مسابقه: {match_id}",
+                reply_markup=admin_menu()
+            )
+
+        except Exception as error:
+
+            print(
+                "❌ CREATE MATCH ERROR:",
+                repr(error)
+            )
+
+            await update.message.reply_text(
+                "❌ خطا هنگام ساخت مسابقه.\n\n"
+                "Logs را بررسی کن."
+            )
+
         return True
 
-    try:
 
-        match_id = create_match(name)
+    return False
 
-        context.user_data.clear()
 
-        await update.message.reply_text(
-            "✅ مسابقه ساخته شد!\n\n"
-            f"🎮 اسم مسابقه: {name}\n"
-            f"🆔 شماره مسابقه: {match_id}",
-            reply_markup=admin_menu()
-        )
+def back_button():
 
-    except Exception as e:
-
-        print("CREATE MATCH ERROR:", repr(e))
-
-        await update.message.reply_text(
-            "❌ ساخت مسابقه انجام نشد.\n"
-            "Logs را بررسی کن."
-        )
-
-    return True
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "🔙 پنل مدیریت",
+                callback_data="adm_back"
+            )
+        ]
+    ])

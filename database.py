@@ -4,16 +4,36 @@ from contextlib import closing
 DB_NAME = "1bd_bot.db"
 
 
+# =========================================================
+# CONNECTION
+# =========================================================
+
 def get_connection():
-    conn = sqlite3.connect(DB_NAME)
+
+    conn = sqlite3.connect(
+        DB_NAME,
+        timeout=30
+    )
+
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
+
+    conn.execute(
+        "PRAGMA foreign_keys = ON"
+    )
+
     return conn
 
 
+# =========================================================
+# INIT DATABASE
+# =========================================================
+
 def init_db():
+
     with closing(get_connection()) as conn:
+
         conn.executescript("""
+
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             telegram_id INTEGER UNIQUE NOT NULL,
@@ -25,6 +45,7 @@ def init_db():
             registered INTEGER NOT NULL DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+
 
         CREATE TABLE IF NOT EXISTS rooms (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,14 +62,19 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
+
         CREATE TABLE IF NOT EXISTS teams (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             room_id INTEGER NOT NULL,
             captain_id INTEGER NOT NULL,
+
+            player_count INTEGER NOT NULL DEFAULT 4,
+
             player1 TEXT NOT NULL,
             player2 TEXT NOT NULL,
             player3 TEXT NOT NULL,
             player4 TEXT NOT NULL,
+
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
             FOREIGN KEY (room_id)
@@ -62,6 +88,7 @@ def init_db():
             UNIQUE(room_id, captain_id)
         );
 
+
         CREATE TABLE IF NOT EXISTS transactions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
@@ -74,6 +101,7 @@ def init_db():
                 REFERENCES users(id)
                 ON DELETE CASCADE
         );
+
 
         CREATE TABLE IF NOT EXISTS registrations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -97,29 +125,71 @@ def init_db():
 
             UNIQUE(user_id, room_id)
         );
+
         """)
 
-        # مهاجرت دیتابیس‌های قبلی
+
+        # =====================================================
+        # USERS MIGRATION
+        # =====================================================
+
         columns = conn.execute(
             "PRAGMA table_info(users)"
         ).fetchall()
 
-        column_names = [row["name"] for row in columns]
+        column_names = [
+            row["name"]
+            for row in columns
+        ]
 
         if "last_name" not in column_names:
+
             conn.execute(
-                "ALTER TABLE users ADD COLUMN last_name TEXT"
+                "ALTER TABLE users "
+                "ADD COLUMN last_name TEXT"
             )
 
         if "phone" not in column_names:
+
             conn.execute(
-                "ALTER TABLE users ADD COLUMN phone TEXT"
+                "ALTER TABLE users "
+                "ADD COLUMN phone TEXT"
             )
 
         if "registered" not in column_names:
+
             conn.execute(
-                "ALTER TABLE users ADD COLUMN registered INTEGER DEFAULT 0"
+                "ALTER TABLE users "
+                "ADD COLUMN registered INTEGER DEFAULT 0"
             )
+
+
+        # =====================================================
+        # TEAMS MIGRATION
+        # =====================================================
+
+        team_columns = conn.execute(
+            "PRAGMA table_info(teams)"
+        ).fetchall()
+
+        team_column_names = [
+            row["name"]
+            for row in team_columns
+        ]
+
+        if "player_count" not in team_column_names:
+
+            conn.execute(
+                "ALTER TABLE teams "
+                "ADD COLUMN player_count INTEGER DEFAULT 4"
+            )
+
+            conn.execute("""
+                UPDATE teams
+                SET player_count = 4
+                WHERE player_count IS NULL
+            """)
+
 
         conn.commit()
 
@@ -133,6 +203,7 @@ def create_user(
     username=None,
     first_name=None
 ):
+
     with closing(get_connection()) as conn:
 
         conn.execute("""
@@ -165,7 +236,9 @@ def get_user(telegram_id):
             SELECT *
             FROM users
             WHERE telegram_id = ?
-        """, (telegram_id,)).fetchone()
+        """, (
+            telegram_id,
+        )).fetchone()
 
 
 def complete_user_registration(
@@ -174,6 +247,7 @@ def complete_user_registration(
     last_name,
     phone
 ):
+
     with closing(get_connection()) as conn:
 
         conn.execute("""
@@ -196,12 +270,17 @@ def complete_user_registration(
 
 def is_user_registered(telegram_id):
 
-    user = get_user(telegram_id)
+    user = get_user(
+        telegram_id
+    )
 
     if not user:
+
         return False
 
-    return bool(user["registered"])
+    return bool(
+        user["registered"]
+    )
 
 
 # =========================================================
@@ -210,31 +289,39 @@ def is_user_registered(telegram_id):
 
 def find_user(search):
 
-    search = str(search).strip()
+    search = str(
+        search
+    ).strip()
 
     if search.startswith("@"):
+
         search = search[1:]
+
 
     with closing(get_connection()) as conn:
 
-        # آیدی عددی
         if search.isdigit():
 
             user = conn.execute("""
                 SELECT *
                 FROM users
                 WHERE telegram_id = ?
-            """, (int(search),)).fetchone()
+            """, (
+                int(search),
+            )).fetchone()
 
             if user:
+
                 return user
 
-        # username
+
         return conn.execute("""
             SELECT *
             FROM users
             WHERE LOWER(username) = LOWER(?)
-        """, (search,)).fetchone()
+        """, (
+            search,
+        )).fetchone()
 
 
 # =========================================================
@@ -243,9 +330,12 @@ def find_user(search):
 
 def get_wallet(telegram_id):
 
-    user = get_user(telegram_id)
+    user = get_user(
+        telegram_id
+    )
 
     if not user:
+
         return 0
 
     return user["wallet"]
@@ -256,27 +346,39 @@ def change_wallet(
     amount,
     description=""
 ):
+
     with closing(get_connection()) as conn:
 
         user = conn.execute("""
             SELECT id
             FROM users
             WHERE telegram_id = ?
-        """, (telegram_id,)).fetchone()
+        """, (
+            telegram_id,
+        )).fetchone()
 
         if not user:
+
             return False, "user_not_found"
+
 
         current = conn.execute("""
             SELECT wallet
             FROM users
             WHERE id = ?
-        """, (user["id"],)).fetchone()["wallet"]
+        """, (
+            user["id"],
+        )).fetchone()["wallet"]
 
-        new_balance = current + amount
+
+        new_balance = (
+            current + amount
+        )
 
         if new_balance < 0:
+
             return False, "insufficient_balance"
+
 
         conn.execute("""
             UPDATE users
@@ -286,6 +388,7 @@ def change_wallet(
             new_balance,
             user["id"]
         ))
+
 
         conn.execute("""
             INSERT INTO transactions
@@ -303,6 +406,7 @@ def change_wallet(
             description
         ))
 
+
         conn.commit()
 
         return True, new_balance
@@ -313,6 +417,7 @@ def add_wallet(
     amount,
     description=""
 ):
+
     return change_wallet(
         telegram_id,
         amount,
@@ -335,6 +440,7 @@ def create_room(
     second_prize,
     third_prize
 ):
+
     with closing(get_connection()) as conn:
 
         cursor = conn.execute("""
@@ -399,7 +505,34 @@ def get_room(room_id):
             SELECT *
             FROM rooms
             WHERE id = ?
-        """, (room_id,)).fetchone()
+        """, (
+            room_id,
+        )).fetchone()
+
+
+# =========================================================
+# ROOM PLAYER COUNT
+# =========================================================
+
+def get_room_player_count(room_id):
+
+    with closing(get_connection()) as conn:
+
+        result = conn.execute("""
+            SELECT
+                COALESCE(
+                    SUM(player_count),
+                    0
+                ) AS count
+
+            FROM teams
+
+            WHERE room_id = ?
+        """, (
+            room_id,
+        )).fetchone()
+
+        return result["count"]
 
 
 # =========================================================
@@ -413,25 +546,53 @@ def update_room(
     room_date=None,
     room_time=None
 ):
+
     fields = []
     values = []
 
+
     if name is not None:
-        fields.append("name = ?")
-        values.append(name)
+
+        fields.append(
+            "name = ?"
+        )
+
+        values.append(
+            name
+        )
+
 
     if room_date is not None:
-        fields.append("room_date = ?")
-        values.append(room_date)
+
+        fields.append(
+            "room_date = ?"
+        )
+
+        values.append(
+            room_date
+        )
+
 
     if room_time is not None:
-        fields.append("room_time = ?")
-        values.append(room_time)
+
+        fields.append(
+            "room_time = ?"
+        )
+
+        values.append(
+            room_time
+        )
+
 
     if not fields:
+
         return False
 
-    values.append(room_id)
+
+    values.append(
+        room_id
+    )
+
 
     with closing(get_connection()) as conn:
 
@@ -445,6 +606,7 @@ def update_room(
         )
 
         conn.commit()
+
 
     return True
 
@@ -461,7 +623,9 @@ def get_room_team_count(room_id):
             SELECT COUNT(*) AS count
             FROM teams
             WHERE room_id = ?
-        """, (room_id,)).fetchone()
+        """, (
+            room_id,
+        )).fetchone()
 
         return result["count"]
 
@@ -494,7 +658,9 @@ def get_room_teams(room_id):
             WHERE teams.room_id = ?
 
             ORDER BY teams.id ASC
-        """, (room_id,)).fetchall()
+        """, (
+            room_id,
+        )).fetchall()
 
 
 def get_captain_team(
@@ -521,113 +687,293 @@ def get_captain_team(
         )).fetchone()
 
 
+# =========================================================
+# CREATE TEAM + PAYMENT
+# =========================================================
+
 def create_team(
     room_id,
     captain_telegram_id,
     player1,
     player2,
     player3,
-    player4
+    player4,
+    player_count
 ):
+
     """
-    ثبت تیم + ثبت‌نام همزمان.
+    ثبت تیم + پرداخت + رزرو ظرفیت
+    همه در یک تراکنش اتمیک انجام می‌شوند.
     """
 
     with closing(get_connection()) as conn:
 
-        user = conn.execute("""
-            SELECT id
-            FROM users
-            WHERE telegram_id = ?
-        """, (
-            captain_telegram_id,
-        )).fetchone()
+        try:
 
-        if not user:
-            return False, "user_not_found"
+            # قفل کردن تراکنش
+            conn.execute(
+                "BEGIN IMMEDIATE"
+            )
 
-        room = conn.execute("""
-            SELECT *
-            FROM rooms
-            WHERE id = ?
-        """, (
-            room_id,
-        )).fetchone()
 
-        if not room:
-            return False, "room_not_found"
+            # =================================================
+            # USER
+            # =================================================
 
-        if room["status"] != "open":
-            return False, "room_closed"
+            user = conn.execute("""
+                SELECT
+                    id,
+                    wallet
+                FROM users
+                WHERE telegram_id = ?
+            """, (
+                captain_telegram_id,
+            )).fetchone()
 
-        # ظرفیت بر اساس تعداد تیم‌ها
-        count = conn.execute("""
-            SELECT COUNT(*) AS count
-            FROM teams
-            WHERE room_id = ?
-        """, (
-            room_id,
-        )).fetchone()["count"]
 
-        if count >= room["capacity"]:
-            return False, "room_full"
+            if not user:
 
-        existing = conn.execute("""
-            SELECT id
-            FROM teams
-            WHERE room_id = ?
-            AND captain_id = ?
-        """, (
-            room_id,
-            user["id"]
-        )).fetchone()
+                conn.rollback()
 
-        if existing:
-            return False, "already_registered"
+                return False, "user_not_found"
 
-        # ایجاد تیم
-        cursor = conn.execute("""
-            INSERT INTO teams
-            (
+
+            # =================================================
+            # ROOM
+            # =================================================
+
+            room = conn.execute("""
+                SELECT *
+                FROM rooms
+                WHERE id = ?
+            """, (
                 room_id,
-                captain_id,
+            )).fetchone()
+
+
+            if not room:
+
+                conn.rollback()
+
+                return False, "room_not_found"
+
+
+            if room["status"] != "open":
+
+                conn.rollback()
+
+                return False, "room_closed"
+
+
+            # =================================================
+            # PLAYER COUNT VALIDATION
+            # =================================================
+
+            if player_count < 1 or player_count > 4:
+
+                conn.rollback()
+
+                return False, "invalid_player_count"
+
+
+            # =================================================
+            # ALREADY REGISTERED
+            # =================================================
+
+            existing = conn.execute("""
+                SELECT id
+                FROM teams
+                WHERE room_id = ?
+                AND captain_id = ?
+            """, (
+                room_id,
+                user["id"]
+            )).fetchone()
+
+
+            if existing:
+
+                conn.rollback()
+
+                return False, "already_registered"
+
+
+            # =================================================
+            # CURRENT CAPACITY
+            # =================================================
+
+            current_count = conn.execute("""
+                SELECT
+                    COALESCE(
+                        SUM(player_count),
+                        0
+                    ) AS count
+
+                FROM teams
+
+                WHERE room_id = ?
+            """, (
+                room_id,
+            )).fetchone()["count"]
+
+
+            remaining = (
+                room["capacity"]
+                - current_count
+            )
+
+
+            if player_count > remaining:
+
+                conn.rollback()
+
+                return False, "not_enough_capacity"
+
+
+            # =================================================
+            # TOTAL PRICE
+            # =================================================
+
+            total_price = (
+                room["entry_fee"]
+                * player_count
+            )
+
+
+            # =================================================
+            # WALLET
+            # =================================================
+
+            if user["wallet"] < total_price:
+
+                conn.rollback()
+
+                return False, "insufficient_balance"
+
+
+            # =================================================
+            # DEDUCT WALLET
+            # =================================================
+
+            conn.execute("""
+                UPDATE users
+
+                SET wallet =
+                    wallet - ?
+
+                WHERE id = ?
+            """, (
+                total_price,
+                user["id"]
+            ))
+
+
+            # =================================================
+            # TRANSACTION
+            # =================================================
+
+            conn.execute("""
+                INSERT INTO transactions
+                (
+                    user_id,
+                    amount,
+                    type,
+                    description
+                )
+                VALUES (?, ?, ?, ?)
+            """, (
+                user["id"],
+                -total_price,
+                "room_entry",
+                (
+                    f"پرداخت ورودی روم "
+                    f"{room_id} "
+                    f"برای {player_count} بازیکن"
+                )
+            ))
+
+
+            # =================================================
+            # CREATE TEAM
+            # =================================================
+
+            cursor = conn.execute("""
+                INSERT INTO teams
+                (
+                    room_id,
+                    captain_id,
+                    player_count,
+                    player1,
+                    player2,
+                    player3,
+                    player4
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                room_id,
+                user["id"],
+                player_count,
                 player1,
                 player2,
                 player3,
                 player4
-            )
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (
-            room_id,
-            user["id"],
-            player1,
-            player2,
-            player3,
-            player4
-        ))
+            ))
 
-        team_id = cursor.lastrowid
 
-        # ثبت‌نام واقعی
-        conn.execute("""
-            INSERT INTO registrations
-            (
-                user_id,
+            team_id = cursor.lastrowid
+
+
+            # =================================================
+            # REGISTRATION
+            # =================================================
+
+            conn.execute("""
+                INSERT INTO registrations
+                (
+                    user_id,
+                    room_id,
+                    team_id,
+                    status
+                )
+                VALUES (?, ?, ?, 'active')
+            """, (
+                user["id"],
                 room_id,
-                team_id,
-                status
+                team_id
+            ))
+
+
+            # =================================================
+            # COMMIT
+            # =================================================
+
+            conn.commit()
+
+            return True, team_id
+
+
+        except sqlite3.IntegrityError:
+
+            conn.rollback()
+
+            return False, "payment_failed"
+
+
+        except Exception as error:
+
+            conn.rollback()
+
+            print(
+                "CREATE TEAM ERROR:",
+                repr(error)
             )
-            VALUES (?, ?, ?, 'active')
-        """, (
-            user["id"],
-            room_id,
-            team_id
-        ))
 
-        conn.commit()
+            return False, "payment_failed"
 
-        return True, team_id
 
+# =========================================================
+# UPDATE TEAM PLAYERS
+# =========================================================
 
 def update_team_players(
     team_id,
@@ -641,11 +987,13 @@ def update_team_players(
 
         conn.execute("""
             UPDATE teams
+
             SET
                 player1 = ?,
                 player2 = ?,
                 player3 = ?,
                 player4 = ?
+
             WHERE id = ?
         """, (
             player1,
@@ -675,7 +1023,11 @@ def get_user_matches(telegram_id):
                 rooms.room_date,
                 rooms.room_time,
                 rooms.entry_fee,
+
+                teams.room_id,
                 teams.id AS team_id,
+                teams.player_count,
+
                 teams.player1,
                 teams.player2,
                 teams.player3,
@@ -713,14 +1065,20 @@ def delete_room_and_refund(room_id):
             room_id,
         )).fetchone()
 
+
         if not room:
+
             return []
+
 
         teams = conn.execute("""
             SELECT
                 teams.id,
+                teams.player_count,
+
                 users.id AS user_id,
                 users.telegram_id
+
             FROM teams
 
             JOIN users
@@ -731,18 +1089,30 @@ def delete_room_and_refund(room_id):
             room_id,
         )).fetchall()
 
+
         captains = []
+
 
         for team in teams:
 
+            refund_amount = (
+                room["entry_fee"]
+                * team["player_count"]
+            )
+
+
             conn.execute("""
                 UPDATE users
-                SET wallet = wallet + ?
+
+                SET wallet =
+                    wallet + ?
+
                 WHERE id = ?
             """, (
-                room["entry_fee"],
+                refund_amount,
                 team["user_id"]
             ))
+
 
             conn.execute("""
                 INSERT INTO transactions
@@ -755,14 +1125,20 @@ def delete_room_and_refund(room_id):
                 VALUES (?, ?, ?, ?)
             """, (
                 team["user_id"],
-                room["entry_fee"],
+                refund_amount,
                 "room_deleted_refund",
-                f"بازگشت وجه حذف روم {room_id}"
+                (
+                    f"بازگشت وجه حذف روم "
+                    f"{room_id} "
+                    f"برای {team['player_count']} بازیکن"
+                )
             ))
+
 
             captains.append(
                 team["telegram_id"]
             )
+
 
         conn.execute("""
             DELETE FROM rooms
@@ -771,9 +1147,15 @@ def delete_room_and_refund(room_id):
             room_id,
         ))
 
+
         conn.commit()
+
 
         return captains
 
+
+# =========================================================
+# INIT
+# =========================================================
 
 init_db()

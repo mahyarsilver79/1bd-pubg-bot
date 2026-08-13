@@ -1,24 +1,13 @@
 import sqlite3
 from contextlib import closing
-
 DB_NAME = "1bd_bot.db"
-
-
 def get_connection():
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
-
-
-# =========================================================
-# DATABASE
-# =========================================================
-
 def init_db():
-
     with closing(get_connection()) as conn:
-
         conn.executescript("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,7 +17,6 @@ def init_db():
             wallet INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
-
         CREATE TABLE IF NOT EXISTS rooms (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
@@ -43,144 +31,76 @@ def init_db():
             status TEXT NOT NULL DEFAULT 'open',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
-
         CREATE TABLE IF NOT EXISTS teams (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-
             room_id INTEGER NOT NULL,
-
             captain_id INTEGER NOT NULL,
-
             player1 TEXT NOT NULL,
             player2 TEXT NOT NULL,
             player3 TEXT NOT NULL,
             player4 TEXT NOT NULL,
-
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
-            FOREIGN KEY (room_id)
-                REFERENCES rooms(id)
-                ON DELETE CASCADE,
-
-            FOREIGN KEY (captain_id)
-                REFERENCES users(id)
-                ON DELETE CASCADE
+            FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
+            FOREIGN KEY (captain_id) REFERENCES users(id) ON DELETE CASCADE
         );
-
         CREATE TABLE IF NOT EXISTS transactions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-
             user_id INTEGER NOT NULL,
-
             amount INTEGER NOT NULL,
-
             type TEXT NOT NULL,
-
             description TEXT,
-
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
-            FOREIGN KEY (user_id)
-                REFERENCES users(id)
-                ON DELETE CASCADE
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS registrations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            room_id INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
         """)
-
         conn.commit()
-
-
 # =========================================================
 # USERS
 # =========================================================
-
-def create_user(
-    telegram_id,
-    username=None,
-    first_name=None
-):
-
+def create_user(telegram_id, username=None, first_name=None):
     with closing(get_connection()) as conn:
-
         conn.execute("""
             INSERT OR IGNORE INTO users
-            (
-                telegram_id,
-                username,
-                first_name
-            )
+            (telegram_id, username, first_name)
             VALUES (?, ?, ?)
-        """, (
-            telegram_id,
-            username,
-            first_name
-        ))
-
+        """, (telegram_id, username, first_name))
         conn.commit()
-
-
 def get_user(telegram_id):
-
     with closing(get_connection()) as conn:
-
         return conn.execute("""
             SELECT *
             FROM users
             WHERE telegram_id = ?
-        """, (
-            telegram_id,
-        )).fetchone()
-
-
+        """, (telegram_id,)).fetchone()
 # =========================================================
 # WALLET
 # =========================================================
-
 def get_wallet(telegram_id):
-
     user = get_user(telegram_id)
-
-    if not user:
-        return 0
-
-    return user["wallet"]
-
-
-def add_wallet(
-    telegram_id,
-    amount,
-    description=""
-):
-
+    return user["wallet"] if user else 0
+def add_wallet(telegram_id, amount, description=""):
     with closing(get_connection()) as conn:
-
         user = conn.execute("""
             SELECT id
             FROM users
             WHERE telegram_id = ?
-        """, (
-            telegram_id,
-        )).fetchone()
-
+        """, (telegram_id,)).fetchone()
         if not user:
             return False
-
         conn.execute("""
             UPDATE users
             SET wallet = wallet + ?
             WHERE id = ?
-        """, (
-            amount,
-            user["id"]
-        ))
-
+        """, (amount, user["id"]))
         conn.execute("""
             INSERT INTO transactions
-            (
-                user_id,
-                amount,
-                type,
-                description
-            )
+            (user_id, amount, type, description)
             VALUES (?, ?, ?, ?)
         """, (
             user["id"],
@@ -188,16 +108,58 @@ def add_wallet(
             "wallet",
             description
         ))
-
         conn.commit()
-
         return True
-
-
 # =========================================================
-# CREATE ROOM
+# OLD REGISTER_PLAYER COMPATIBILITY
 # =========================================================
-
+def register_player(user_id, room_id):
+    """
+    سازگاری با bot.py قدیمی.
+    فعلاً ثبت‌نام قدیمی را نگه می‌داریم تا bot.py
+    به خاطر ImportError متوقف نشود.
+    """
+    with closing(get_connection()) as conn:
+        user = conn.execute("""
+            SELECT id
+            FROM users
+            WHERE telegram_id = ?
+        """, (user_id,)).fetchone()
+        if not user:
+            conn.execute("""
+                INSERT INTO users (telegram_id)
+                VALUES (?)
+            """, (user_id,))
+            conn.commit()
+            user = conn.execute("""
+                SELECT id
+                FROM users
+                WHERE telegram_id = ?
+            """, (user_id,)).fetchone()
+        exists = conn.execute("""
+            SELECT id
+            FROM registrations
+            WHERE user_id = ?
+            AND room_id = ?
+        """, (
+            user["id"],
+            room_id
+        )).fetchone()
+        if exists:
+            return False
+        conn.execute("""
+            INSERT INTO registrations
+            (user_id, room_id)
+            VALUES (?, ?)
+        """, (
+            user["id"],
+            room_id
+        ))
+        conn.commit()
+        return True
+# =========================================================
+# ROOMS
+# =========================================================
 def create_room(
     name,
     room_date,
@@ -209,9 +171,7 @@ def create_room(
     second_prize,
     third_prize
 ):
-
     with closing(get_connection()) as conn:
-
         cursor = conn.execute("""
             INSERT INTO rooms
             (
@@ -237,60 +197,33 @@ def create_room(
             second_prize,
             third_prize
         ))
-
         conn.commit()
-
         return cursor.lastrowid
-
-
-# =========================================================
-# ROOMS
-# =========================================================
-
 def get_rooms():
-
     with closing(get_connection()) as conn:
-
         return conn.execute("""
             SELECT *
             FROM rooms
-            ORDER BY room_date ASC,
-                     room_time ASC,
-                     id ASC
+            ORDER BY id DESC
         """).fetchall()
-
-
 def get_open_rooms():
-
     with closing(get_connection()) as conn:
-
         return conn.execute("""
             SELECT *
             FROM rooms
             WHERE status = 'open'
-            ORDER BY room_date ASC,
-                     room_time ASC,
-                     id ASC
+            ORDER BY id DESC
         """).fetchall()
-
-
 def get_room(room_id):
-
     with closing(get_connection()) as conn:
-
         return conn.execute("""
             SELECT *
             FROM rooms
             WHERE id = ?
-        """, (
-            room_id,
-        )).fetchone()
-
-
+        """, (room_id,)).fetchone()
 # =========================================================
 # UPDATE ROOM
 # =========================================================
-
 def update_room(
     room_id,
     name=None,
@@ -303,10 +236,8 @@ def update_room(
     second_prize=None,
     third_prize=None
 ):
-
     fields = []
     values = []
-
     data = [
         ("name", name),
         ("room_date", room_date),
@@ -318,21 +249,14 @@ def update_room(
         ("second_prize", second_prize),
         ("third_prize", third_prize)
     ]
-
     for field, value in data:
-
         if value is not None:
-
             fields.append(f"{field} = ?")
             values.append(value)
-
     if not fields:
         return False
-
     values.append(room_id)
-
     with closing(get_connection()) as conn:
-
         conn.execute(
             f"""
             UPDATE rooms
@@ -341,113 +265,149 @@ def update_room(
             """,
             values
         )
-
         conn.commit()
-
     return True
-
-
 # =========================================================
-# ROOM TEAMS
+# TEAMS
 # =========================================================
-
-def get_room_teams(room_id):
-
+def create_team(
+    room_id,
+    captain_telegram_id,
+    player1,
+    player2,
+    player3,
+    player4
+):
     with closing(get_connection()) as conn:
-
+        user = conn.execute("""
+            SELECT id
+            FROM users
+            WHERE telegram_id = ?
+        """, (captain_telegram_id,)).fetchone()
+        if not user:
+            conn.execute("""
+                INSERT INTO users (telegram_id)
+                VALUES (?)
+            """, (captain_telegram_id,))
+            conn.commit()
+            user = conn.execute("""
+                SELECT id
+                FROM users
+                WHERE telegram_id = ?
+            """, (captain_telegram_id,)).fetchone()
+        cursor = conn.execute("""
+            INSERT INTO teams
+            (
+                room_id,
+                captain_id,
+                player1,
+                player2,
+                player3,
+                player4
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            room_id,
+            user["id"],
+            player1,
+            player2,
+            player3,
+            player4
+        ))
+        conn.commit()
+        return cursor.lastrowid
+def get_room_teams(room_id):
+    with closing(get_connection()) as conn:
         return conn.execute("""
             SELECT
                 teams.*,
                 users.telegram_id AS captain_telegram_id,
                 users.username AS captain_username,
                 users.first_name AS captain_first_name
-
             FROM teams
-
             JOIN users
                 ON users.id = teams.captain_id
-
             WHERE teams.room_id = ?
-
             ORDER BY teams.id ASC
-        """, (
-            room_id,
-        )).fetchall()
-
-
-# =========================================================
-# TEAM COUNT
-# =========================================================
-
+        """, (room_id,)).fetchall()
 def get_room_team_count(room_id):
-
     with closing(get_connection()) as conn:
-
         result = conn.execute("""
             SELECT COUNT(*) AS count
             FROM teams
             WHERE room_id = ?
+        """, (room_id,)).fetchone()
+        return result["count"]
+def get_captain_team(room_id, captain_telegram_id):
+    with closing(get_connection()) as conn:
+        return conn.execute("""
+            SELECT teams.*
+            FROM teams
+            JOIN users
+                ON users.id = teams.captain_id
+            WHERE teams.room_id = ?
+            AND users.telegram_id = ?
         """, (
             room_id,
+            captain_telegram_id
         )).fetchone()
-
-        return result["count"]
-
-
-# =========================================================
-# DELETE ROOM + REFUND CAPTAINS
-# =========================================================
-
-def delete_room_and_refund(room_id):
-
+def update_team_players(
+    team_id,
+    player1,
+    player2,
+    player3,
+    player4
+):
     with closing(get_connection()) as conn:
-
+        conn.execute("""
+            UPDATE teams
+            SET
+                player1 = ?,
+                player2 = ?,
+                player3 = ?,
+                player4 = ?
+            WHERE id = ?
+        """, (
+            player1,
+            player2,
+            player3,
+            player4,
+            team_id
+        ))
+        conn.commit()
+        return True
+# =========================================================
+# DELETE ROOM + REFUND
+# =========================================================
+def delete_room_and_refund(room_id):
+    with closing(get_connection()) as conn:
         room = conn.execute("""
             SELECT *
             FROM rooms
             WHERE id = ?
-        """, (
-            room_id,
-        )).fetchone()
-
+        """, (room_id,)).fetchone()
         if not room:
             return []
-
         teams = conn.execute("""
             SELECT
                 teams.id,
+                users.id AS user_id,
                 users.telegram_id
             FROM teams
-
             JOIN users
                 ON users.id = teams.captain_id
-
             WHERE teams.room_id = ?
-        """, (
-            room_id,
-        )).fetchall()
-
+        """, (room_id,)).fetchall()
         refunded_captains = []
-
         for team in teams:
-
-            captain_id = conn.execute("""
-                SELECT captain_id
-                FROM teams
-                WHERE id = ?
-            """, (
-                team["id"],
-            )).fetchone()["captain_id"]
-
             conn.execute("""
                 UPDATE users
                 SET wallet = wallet + ?
                 WHERE id = ?
             """, (
                 room["entry_fee"],
-                captain_id
+                team["user_id"]
             ))
-
             conn.execute("""
                 INSERT INTO transactions
                 (
@@ -458,30 +418,49 @@ def delete_room_and_refund(room_id):
                 )
                 VALUES (?, ?, ?, ?)
             """, (
-                captain_id,
+                team["user_id"],
                 room["entry_fee"],
                 "room_deleted_refund",
                 f"Refund for deleted room {room_id}"
             ))
-
             refunded_captains.append(
                 team["telegram_id"]
             )
-
+        conn.execute("""
+            DELETE FROM registrations
+            WHERE room_id = ?
+        """, (room_id,))
+        conn.execute("""
+            DELETE FROM teams
+            WHERE room_id = ?
+        """, (room_id,))
         conn.execute("""
             DELETE FROM rooms
             WHERE id = ?
-        """, (
-            room_id,
-        ))
-
+        """, (room_id,))
         conn.commit()
-
         return refunded_captains
-
-
 # =========================================================
-# INITIALIZE
+# USER ROOMS
 # =========================================================
-
+def get_user_rooms(telegram_id):
+    with closing(get_connection()) as conn:
+        return conn.execute("""
+            SELECT rooms.*
+            FROM rooms
+            JOIN registrations
+                ON registrations.room_id = rooms.id
+            JOIN users
+                ON users.id = registrations.user_id
+            WHERE users.telegram_id = ?
+            ORDER BY rooms.id DESC
+        """, (telegram_id,)).fetchall()
+def get_user_matches(telegram_id):
+    """
+    سازگاری با bot.py قبلی.
+    """
+    return get_user_rooms(telegram_id)
+# =========================================================
+# INIT
+# =========================================================
 init_db()

@@ -1,7 +1,6 @@
 import sqlite3
 from contextlib import closing
 
-
 DB_NAME = "1bd_bot.db"
 
 
@@ -30,58 +29,36 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
-
         CREATE TABLE IF NOT EXISTS rooms (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-
             name TEXT NOT NULL,
-
             room_date TEXT NOT NULL,
-
             room_time TEXT NOT NULL,
-
             capacity INTEGER NOT NULL DEFAULT 64,
-
             entry_fee INTEGER NOT NULL DEFAULT 0,
-
             kill_prize INTEGER NOT NULL DEFAULT 0,
-
             first_prize INTEGER NOT NULL DEFAULT 0,
-
             second_prize INTEGER NOT NULL DEFAULT 0,
-
             third_prize INTEGER NOT NULL DEFAULT 0,
-
             status TEXT NOT NULL DEFAULT 'open',
-
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
-
         CREATE TABLE IF NOT EXISTS squads (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-
             room_id INTEGER NOT NULL,
-
             squad_number INTEGER NOT NULL,
-
             FOREIGN KEY (room_id)
                 REFERENCES rooms(id)
                 ON DELETE CASCADE
         );
 
-
         CREATE TABLE IF NOT EXISTS registrations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-
             user_id INTEGER NOT NULL,
-
             room_id INTEGER NOT NULL,
-
             squad_id INTEGER,
-
             status TEXT NOT NULL DEFAULT 'active',
-
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
             FOREIGN KEY (user_id)
@@ -97,18 +74,12 @@ def init_db():
                 ON DELETE SET NULL
         );
 
-
         CREATE TABLE IF NOT EXISTS transactions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-
             user_id INTEGER NOT NULL,
-
             amount INTEGER NOT NULL,
-
             type TEXT NOT NULL,
-
             description TEXT,
-
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
             FOREIGN KEY (user_id)
@@ -186,9 +157,7 @@ def add_wallet(
 
         conn.execute("""
             UPDATE users
-
             SET wallet = wallet + ?
-
             WHERE telegram_id = ?
         """, (
             amount,
@@ -255,7 +224,6 @@ def create_room(
                 second_prize,
                 third_prize
             )
-
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             name,
@@ -285,7 +253,9 @@ def get_rooms():
         return conn.execute("""
             SELECT *
             FROM rooms
-            ORDER BY room_date ASC, room_time ASC, id ASC
+            ORDER BY room_date ASC,
+                     room_time ASC,
+                     id ASC
         """).fetchall()
 
 
@@ -296,10 +266,10 @@ def get_open_rooms():
         return conn.execute("""
             SELECT *
             FROM rooms
-
             WHERE status = 'open'
-
-            ORDER BY room_date ASC, room_time ASC, id ASC
+            ORDER BY room_date ASC,
+                     room_time ASC,
+                     id ASC
         """).fetchall()
 
 
@@ -310,7 +280,6 @@ def get_room(room_id):
         return conn.execute("""
             SELECT *
             FROM rooms
-
             WHERE id = ?
         """, (
             room_id,
@@ -388,9 +357,7 @@ def update_room(
         conn.execute(
             f"""
             UPDATE rooms
-
             SET {", ".join(fields)}
-
             WHERE id = ?
             """,
             values
@@ -454,11 +421,8 @@ def get_room_player_count(room_id):
 
         result = conn.execute("""
             SELECT COUNT(*) AS count
-
             FROM registrations
-
             WHERE room_id = ?
-
             AND status = 'active'
         """, (
             room_id,
@@ -515,13 +479,9 @@ def get_room_total_prizes(room_id):
 
 def get_room_profit(room_id):
 
-    revenue = get_room_revenue(
-        room_id
-    )
+    revenue = get_room_revenue(room_id)
 
-    prizes = get_room_total_prizes(
-        room_id
-    )
+    prizes = get_room_total_prizes(room_id)
 
     return revenue - prizes
 
@@ -536,9 +496,7 @@ def create_squad(room_id):
 
         result = conn.execute("""
             SELECT MAX(squad_number) AS max_number
-
             FROM squads
-
             WHERE room_id = ?
         """, (
             room_id,
@@ -554,7 +512,6 @@ def create_squad(room_id):
                 room_id,
                 squad_number
             )
-
             VALUES (?, ?)
         """, (
             room_id,
@@ -573,9 +530,7 @@ def get_available_squad(room_id):
         squads = conn.execute("""
             SELECT *
             FROM squads
-
             WHERE room_id = ?
-
             ORDER BY squad_number ASC
         """, (
             room_id,
@@ -585,18 +540,14 @@ def get_available_squad(room_id):
 
             count = conn.execute("""
                 SELECT COUNT(*) AS count
-
                 FROM registrations
-
                 WHERE squad_id = ?
-
                 AND status = 'active'
             """, (
                 squad["id"],
             )).fetchone()["count"]
 
             if count < 4:
-
                 return squad
 
     return None
@@ -615,28 +566,21 @@ def register_player(
 
         user = conn.execute("""
             SELECT id
-
             FROM users
-
             WHERE telegram_id = ?
         """, (
             telegram_id,
         )).fetchone()
 
         if not user:
-
             return False, "user_not_found"
 
 
         existing = conn.execute("""
             SELECT id
-
             FROM registrations
-
             WHERE user_id = ?
-
             AND room_id = ?
-
             AND status = 'active'
         """, (
             user["id"],
@@ -644,34 +588,26 @@ def register_player(
         )).fetchone()
 
         if existing:
-
             return False, "already_registered"
 
 
         room = conn.execute("""
             SELECT *
-
             FROM rooms
-
             WHERE id = ?
-
             AND status = 'open'
         """, (
             room_id,
         )).fetchone()
 
         if not room:
-
             return False, "room_not_found"
 
 
         player_count = conn.execute("""
             SELECT COUNT(*) AS count
-
             FROM registrations
-
             WHERE room_id = ?
-
             AND status = 'active'
         """, (
             room_id,
@@ -679,20 +615,15 @@ def register_player(
 
 
         if player_count >= room["capacity"]:
-
             return False, "room_full"
 
-
-        # پیدا کردن تیم آزاد
 
         squad = None
 
         squads = conn.execute("""
             SELECT *
             FROM squads
-
             WHERE room_id = ?
-
             ORDER BY squad_number ASC
         """, (
             room_id,
@@ -703,11 +634,8 @@ def register_player(
 
             count = conn.execute("""
                 SELECT COUNT(*) AS count
-
                 FROM registrations
-
                 WHERE squad_id = ?
-
                 AND status = 'active'
             """, (
                 item["id"],
@@ -719,16 +647,11 @@ def register_player(
                 break
 
 
-        # اگر تیم آزاد وجود نداشت
-        # تیم جدید بساز
-
         if not squad:
 
             max_number = conn.execute("""
                 SELECT MAX(squad_number) AS max_number
-
                 FROM squads
-
                 WHERE room_id = ?
             """, (
                 room_id,
@@ -745,7 +668,6 @@ def register_player(
                     room_id,
                     squad_number
                 )
-
                 VALUES (?, ?)
             """, (
                 room_id,
@@ -755,16 +677,12 @@ def register_player(
 
             squad = conn.execute("""
                 SELECT *
-
                 FROM squads
-
                 WHERE id = ?
             """, (
                 cursor.lastrowid,
             )).fetchone()
 
-
-        # ثبت بازیکن
 
         conn.execute("""
             INSERT INTO registrations
@@ -773,7 +691,6 @@ def register_player(
                 room_id,
                 squad_id
             )
-
             VALUES (?, ?, ?)
         """, (
             user["id"],
@@ -783,7 +700,6 @@ def register_player(
 
 
         conn.commit()
-
 
         return True, squad["squad_number"]
 
@@ -801,9 +717,7 @@ def cancel_registration(
 
         user = conn.execute("""
             SELECT id
-
             FROM users
-
             WHERE telegram_id = ?
         """, (
             telegram_id,
@@ -815,13 +729,9 @@ def cancel_registration(
 
         registration = conn.execute("""
             SELECT id
-
             FROM registrations
-
             WHERE user_id = ?
-
             AND room_id = ?
-
             AND status = 'active'
         """, (
             user["id"],
@@ -834,9 +744,7 @@ def cancel_registration(
 
         room = conn.execute("""
             SELECT entry_fee
-
             FROM rooms
-
             WHERE id = ?
         """, (
             room_id,
@@ -848,9 +756,7 @@ def cancel_registration(
 
         conn.execute("""
             UPDATE registrations
-
             SET status = 'cancelled'
-
             WHERE id = ?
         """, (
             registration["id"],
@@ -859,9 +765,7 @@ def cancel_registration(
 
         conn.execute("""
             UPDATE users
-
             SET wallet = wallet + ?
-
             WHERE id = ?
         """, (
             room["entry_fee"],
@@ -877,7 +781,6 @@ def cancel_registration(
                 type,
                 description
             )
-
             VALUES (?, ?, ?, ?)
         """, (
             user["id"],
@@ -893,10 +796,10 @@ def cancel_registration(
 
 
 # =========================================================
-# USER ROOMS
+# USER MATCHES
 # =========================================================
 
-def get_user_rooms(telegram_id):
+def get_user_matches(telegram_id):
 
     with closing(get_connection()) as conn:
 
@@ -941,9 +844,19 @@ def get_user_rooms(telegram_id):
             AND registrations.status = 'active'
 
             ORDER BY registrations.id DESC
+
         """, (
             telegram_id,
         )).fetchall()
+
+
+# =========================================================
+# USER ROOMS
+# =========================================================
+
+def get_user_rooms(telegram_id):
+
+    return get_user_matches(telegram_id)
 
 
 # =========================================================

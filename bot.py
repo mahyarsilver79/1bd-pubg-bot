@@ -1,11 +1,12 @@
 import os
-import re
-from datetime import datetime, timedelta
 
 from telegram import (
     Update,
     InlineKeyboardButton,
-    InlineKeyboardMarkup
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
 )
 
 from telegram.ext import (
@@ -19,17 +20,16 @@ from telegram.ext import (
 
 from database import (
     create_user,
+    get_user,
     get_wallet,
     get_open_rooms,
     get_room,
-    register_team,
+    get_room_teams,
+    get_room_team_count,
+    create_team,
+    get_captain_team,
+    update_team_players,
     get_user_rooms,
-    get_team,
-    update_team_player,
-    cancel_team,
-    get_bank_account,
-    set_bank_account,
-    create_withdrawal,
 )
 
 from admin import (
@@ -38,45 +38,69 @@ from admin import (
     handle_admin_message,
 )
 
-
 TOKEN = os.getenv("BOT_TOKEN")
 
 
+# =========================================================
+# USER MENU
+# =========================================================
+
 def main_menu():
+
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(
-            "📝 ثبت‌نام روم",
-            callback_data="register"
-        )],
-        [InlineKeyboardButton(
-            "🏆 مسابقات من",
-            callback_data="my_matches"
-        )],
-        [InlineKeyboardButton(
-            "💰 کیف پول",
-            callback_data="wallet"
-        )],
-        [InlineKeyboardButton(
-            "📜 قوانین",
-            callback_data="rules"
-        )],
-        [InlineKeyboardButton(
-            "🎧 پشتیبانی",
-            callback_data="support"
-        )],
+        [
+            InlineKeyboardButton(
+                "🎮 ثبت‌نام روم",
+                callback_data="register"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "📋 مسابقات من",
+                callback_data="my_matches"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "💰 کیف پول",
+                callback_data="wallet"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "📜 قوانین",
+                callback_data="rules"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🎧 پشتیبانی",
+                callback_data="support"
+            )
+        ],
     ])
 
 
-def back_main():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton(
-            "🔙 منوی اصلی",
-            callback_data="back"
-        )]
-    ])
+# =========================================================
+# REGISTRATION
+# =========================================================
+
+def registration_keyboard():
+
+    keyboard = KeyboardButton(
+        "📱 ارسال شماره تماس",
+        request_contact=True
+    )
+
+    return ReplyKeyboardMarkup(
+        [[keyboard]],
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     user = update.effective_user
 
     create_user(
@@ -85,116 +109,261 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         first_name=user.first_name,
     )
 
-    context.user_data.clear()
+    db_user = get_user(user.id)
+
+    if not db_user or not db_user["last_name"] or not db_user["phone"]:
+
+        context.user_data.clear()
+
+        context.user_data["registration_state"] = "first_name"
+
+        await update.message.reply_text(
+            "👋 خوش اومدی!\n\n"
+            "برای استفاده از ربات ابتدا باید ثبت‌نام کنی.\n\n"
+            "👤 نام خودت را وارد کن:",
+            reply_markup=ReplyKeyboardRemove()
+        )
+
+        return
 
     await update.message.reply_text(
         "🎮 به ربات 1BD PUBG خوش اومدی!\n\n"
-        "گزینه موردنظرت رو انتخاب کن:",
+        "یک گزینه را انتخاب کن:",
         reply_markup=main_menu()
     )
+
+
+async def registration_text(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    state = context.user_data.get("registration_state")
+
+    if not state:
+        return False
+
+    text = update.message.text.strip()
+
+    if state == "first_name":
+
+        if len(text) < 2:
+
+            await update.message.reply_text(
+                "❌ نام معتبر وارد کن."
+            )
+
+            return True
+
+        context.user_data["reg_first_name"] = text
+        context.user_data["registration_state"] = "last_name"
+
+        await update.message.reply_text(
+            "👤 نام خانوادگی را وارد کن:"
+        )
+
+        return True
+
+    if state == "last_name":
+
+        if len(text) < 2:
+
+            await update.message.reply_text(
+                "❌ نام خانوادگی معتبر وارد کن."
+            )
+
+            return True
+
+        context.user_data["reg_last_name"] = text
+        context.user_data["registration_state"] = "phone"
+
+        await update.message.reply_text(
+            "📱 شماره تماس خودت را ارسال کن:",
+            reply_markup=registration_keyboard()
+        )
+
+        return True
+
+    return False
+
+
+async def registration_contact(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    state = context.user_data.get("registration_state")
+
+    if state != "phone":
+        return False
+
+    contact = update.message.contact
+
+    if contact.user_id and contact.user_id != update.effective_user.id:
+
+        await update.message.reply_text(
+            "❌ لطفاً شماره تماس خودت را ارسال کن."
+        )
+
+        return True
+
+    from database import complete_user_registration
+
+    first_name = context.user_data.get("reg_first_name")
+    last_name = context.user_data.get("reg_last_name")
+
+    complete_user_registration(
+        telegram_id=update.effective_user.id,
+        first_name=first_name,
+        last_name=last_name,
+        phone=contact.phone_number,
+    )
+
+    context.user_data.clear()
+
+    await update.message.reply_text(
+        "✅ ثبت‌نام با موفقیت انجام شد!\n\n"
+        "حالا می‌تونی وارد پنل کاربری بشی.",
+        reply_markup=ReplyKeyboardRemove()
+    )
+
+    await update.message.reply_text(
+        "🎮 پنل کاربری 1BD PUBG",
+        reply_markup=main_menu()
+    )
+
+    return True
 
 
 # =========================================================
 # REGISTER ROOM
 # =========================================================
 
-async def register(update, context):
+async def register(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     query = update.callback_query
     await query.answer()
 
     rooms = get_open_rooms()
 
     if not rooms:
+
         await query.edit_message_text(
-            "📝 ثبت‌نام روم\n\n"
-            "❌ فعلاً هیچ روم فعالی وجود ندارد.",
-            reply_markup=back_main()
+            "🎮 ثبت‌نام روم\n\n"
+            "❌ فعلاً هیچ رومی فعال نیست.",
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton(
+                        "🔙 بازگشت",
+                        callback_data="back"
+                    )
+                ]
+            ])
         )
+
         return
 
     keyboard = []
 
     for room in rooms:
-        count = get_room(room["id"])
 
-        # تعداد واقعی تیم‌ها از دیتابیس
-        from database import get_room_team_count
-        team_count = get_room_team_count(room["id"])
+        count = get_room_team_count(room["id"])
 
-        if team_count < room["capacity"]:
-            keyboard.append([
-                InlineKeyboardButton(
-                    f"🏠 {room['name']} | "
-                    f"📅 {room['room_date']} | "
-                    f"⏰ {room['room_time']}",
-                    callback_data=f"room_{room['id']}"
-                )
-            ])
+        if count >= room["capacity"]:
+            continue
+
+        keyboard.append([
+            InlineKeyboardButton(
+                f"🏠 {room['name']} | "
+                f"{room['room_date']} | "
+                f"{room['room_time']}",
+                callback_data=f"room_{room['id']}"
+            )
+        ])
 
     keyboard.append([
         InlineKeyboardButton(
-            "🔙 منوی اصلی",
+            "🔙 بازگشت",
             callback_data="back"
         )
     ])
 
     if len(keyboard) == 1:
+
         await query.edit_message_text(
             "❌ تمام روم‌ها پر شده‌اند.",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
+
         return
 
     await query.edit_message_text(
-        "📝 ثبت‌نام روم\n\n"
-        "روم موردنظرت رو انتخاب کن:",
+        "🎮 ثبت‌نام روم\n\n"
+        "روم موردنظرت را انتخاب کن:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 
-async def room_details(update, context):
+# =========================================================
+# ROOM DETAILS
+# =========================================================
+
+async def room_details(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
     query = update.callback_query
     await query.answer()
 
     room_id = int(query.data.split("_")[1])
+
     room = get_room(room_id)
 
     if not room:
+
         await query.edit_message_text(
             "❌ روم پیدا نشد.",
-            reply_markup=back_main()
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton(
+                        "🔙 بازگشت",
+                        callback_data="register"
+                    )
+                ]
+            ])
         )
+
         return
 
-    from database import get_room_team_count
     count = get_room_team_count(room_id)
 
     text = (
-        f"🏠 {room['name']}\n\n"
-        f"📅 {room['room_date']}\n"
-        f"⏰ {room['room_time']}\n"
-        f"👥 ظرفیت: {room['capacity']}\n"
-        f"👤 تیم‌های ثبت‌شده: {count}\n\n"
-        f"💰 ورودی: {room['entry_fee']:,} تومان\n"
+        "🏠 مشخصات روم\n\n"
+        f"🏷 نام: {room['name']}\n"
+        f"📅 تاریخ: {room['room_date']}\n"
+        f"⏰ ساعت: {room['room_time']}\n"
+        f"👥 ظرفیت: {count}/{room['capacity']}\n"
+        f"💰 ورودی: {room['entry_fee']:,} تومان\n\n"
         f"🔫 جایزه هر کیل: {room['kill_prize']:,} تومان\n"
-        f"🥇 تیم اول: {room['first_prize']:,} تومان\n"
-        f"🥈 تیم دوم: {room['second_prize']:,} تومان\n"
-        f"🥉 تیم سوم: {room['third_prize']:,} تومان"
+        f"🥇 جایزه تیم اول: {room['first_prize']:,} تومان\n"
+        f"🥈 جایزه تیم دوم: {room['second_prize']:,} تومان\n"
+        f"🥉 جایزه تیم سوم: {room['third_prize']:,} تومان"
     )
 
     keyboard = [
-        [InlineKeyboardButton(
-            "✅ ثبت‌نام تیم",
-            callback_data=f"team_start_{room_id}"
-        )],
-        [InlineKeyboardButton(
-            "🔙 لیست روم‌ها",
-            callback_data="register"
-        )],
-        [InlineKeyboardButton(
-            "🏠 منوی اصلی",
-            callback_data="back"
-        )]
+        [
+            InlineKeyboardButton(
+                "✅ ثبت‌نام در این روم",
+                callback_data=f"team_register_{room_id}"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🔙 لیست روم‌ها",
+                callback_data="register"
+            )
+        ]
     ]
 
     await query.edit_message_text(
@@ -204,21 +373,60 @@ async def room_details(update, context):
 
 
 # =========================================================
-# TEAM REGISTRATION INPUT
+# TEAM REGISTER
 # =========================================================
 
-async def team_start(update, context):
+async def team_register(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
     query = update.callback_query
     await query.answer()
 
-    room_id = int(query.data.split("_")[2])
+    room_id = int(
+        query.data.split("_")[2]
+    )
+
     room = get_room(room_id)
 
     if not room:
+
         await query.edit_message_text(
-            "❌ روم پیدا نشد.",
-            reply_markup=back_main()
+            "❌ روم پیدا نشد."
         )
+
+        return
+
+    existing = get_captain_team(
+        room_id,
+        query.from_user.id
+    )
+
+    if existing:
+
+        await query.edit_message_text(
+            "⚠️ شما قبلاً در این روم ثبت‌نام کرده‌ای.",
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton(
+                        "📋 مسابقات من",
+                        callback_data="my_matches"
+                    )
+                ]
+            ])
+        )
+
+        return
+
+    count = get_room_team_count(room_id)
+
+    if count >= room["capacity"]:
+
+        await query.edit_message_text(
+            "❌ ظرفیت روم تکمیل شده است."
+        )
+
         return
 
     context.user_data.clear()
@@ -227,224 +435,153 @@ async def team_start(update, context):
     context.user_data["team_state"] = "player1"
 
     await query.edit_message_text(
-        "🎮 ثبت‌نام تیم\n\n"
-        "👥 آیدی اکانت بازی بازیکن ۱ را وارد کن:",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton(
-                "❌ لغو",
-                callback_data=f"room_{room_id}"
-            )]
-        ])
+        "👥 ثبت‌نام تیم\n\n"
+        "آیدی داخل بازی بازیکن ۱ را وارد کن:"
     )
 
 
-async def handle_team_text(update, context):
+async def team_text(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
     state = context.user_data.get("team_state")
 
     if not state:
         return False
 
-    value = update.message.text.strip()
+    text = update.message.text.strip()
 
-    if not value:
+    if not text:
+        return True
+
+    index = int(state.replace("player", ""))
+
+    context.user_data[f"player{index}"] = text
+
+    if index < 4:
+
+        next_index = index + 1
+
+        context.user_data["team_state"] = f"player{next_index}"
+
         await update.message.reply_text(
-            "❌ آیدی نمی‌تواند خالی باشد."
+            f"🎮 آیدی داخل بازی بازیکن {next_index} را وارد کن:"
         )
+
         return True
 
     room_id = context.user_data["team_room_id"]
 
-    if state == "player1":
-        context.user_data["player1"] = value
-        context.user_data["team_state"] = "player2"
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                "✏️ بازیکن ۱",
+                callback_data="edit_temp_1"
+            ),
+            InlineKeyboardButton(
+                "✏️ بازیکن ۲",
+                callback_data="edit_temp_2"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "✏️ بازیکن ۳",
+                callback_data="edit_temp_3"
+            ),
+            InlineKeyboardButton(
+                "✏️ بازیکن ۴",
+                callback_data="edit_temp_4"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "✅ تأیید اطلاعات",
+                callback_data="confirm_team"
+            )
+        ]
+    ]
 
-        await update.message.reply_text(
-            "👥 آیدی اکانت بازی بازیکن ۲ را وارد کن:"
-        )
-        return True
-
-    if state == "player2":
-        context.user_data["player2"] = value
-        context.user_data["team_state"] = "player3"
-
-        await update.message.reply_text(
-            "👥 آیدی اکانت بازی بازیکن ۳ را وارد کن:"
-        )
-        return True
-
-    if state == "player3":
-        context.user_data["player3"] = value
-        context.user_data["team_state"] = "player4"
-
-        await update.message.reply_text(
-            "👥 آیدی اکانت بازی بازیکن ۴ را وارد کن:"
-        )
-        return True
-
-    if state == "player4":
-        context.user_data["player4"] = value
-        context.user_data["team_state"] = "confirm"
-
-        room = get_room(room_id)
-
-        await update.message.reply_text(
-            f"🏠 روم: {room['name']}\n"
-            f"📅 {room['room_date']}\n"
-            f"⏰ {room['room_time']}\n\n"
-            "👥 بازیکنان:\n"
-            f"1️⃣ {context.user_data['player1']}\n"
-            f"2️⃣ {context.user_data['player2']}\n"
-            f"3️⃣ {context.user_data['player3']}\n"
-            f"4️⃣ {context.user_data['player4']}\n\n"
-            f"💰 ورودی: {room['entry_fee']:,} تومان",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton(
-                    "✏️ ویرایش بازیکنان",
-                    callback_data="team_edit"
-                )],
-                [InlineKeyboardButton(
-                    "💳 پرداخت و ثبت‌نام",
-                    callback_data="team_pay"
-                )],
-                [InlineKeyboardButton(
-                    "❌ لغو",
-                    callback_data=f"room_{room_id}"
-                )]
-            ])
-        )
-
-        return True
-
-    return False
-
-
-async def team_edit(update, context):
-    query = update.callback_query
-    await query.answer()
-
-    await query.edit_message_text(
-        "✏️ کدام بازیکن را می‌خواهی ویرایش کنی؟",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton(
-                f"1️⃣ {context.user_data['player1']}",
-                callback_data="edit_player_1"
-            )],
-            [InlineKeyboardButton(
-                f"2️⃣ {context.user_data['player2']}",
-                callback_data="edit_player_2"
-            )],
-            [InlineKeyboardButton(
-                f"3️⃣ {context.user_data['player3']}",
-                callback_data="edit_player_3"
-            )],
-            [InlineKeyboardButton(
-                f"4️⃣ {context.user_data['player4']}",
-                callback_data="edit_player_4"
-            )],
-            [InlineKeyboardButton(
-                "🔙 ادامه ثبت‌نام",
-                callback_data="team_review"
-            )]
-        ])
-    )
-
-
-async def edit_player(update, context):
-    query = update.callback_query
-    await query.answer()
-
-    number = int(query.data.split("_")[2])
-
-    context.user_data["edit_player_number"] = number
-    context.user_data["team_state"] = "edit_player"
-
-    await query.edit_message_text(
-        f"👥 آیدی جدید بازیکن {number} را وارد کن:"
-    )
-
-
-async def team_review(update, context):
-    query = update.callback_query
-    await query.answer()
-
-    room_id = context.user_data["team_room_id"]
-    room = get_room(room_id)
-
-    await query.edit_message_text(
-        f"🏠 روم: {room['name']}\n\n"
-        "👥 بازیکنان:\n"
+    await update.message.reply_text(
+        "👥 اطلاعات تیم\n\n"
         f"1️⃣ {context.user_data['player1']}\n"
         f"2️⃣ {context.user_data['player2']}\n"
         f"3️⃣ {context.user_data['player3']}\n"
         f"4️⃣ {context.user_data['player4']}\n\n"
-        f"💰 ورودی: {room['entry_fee']:,} تومان",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton(
-                "💳 پرداخت و ثبت‌نام",
-                callback_data="team_pay"
-            )],
-            [InlineKeyboardButton(
-                "✏️ ویرایش",
-                callback_data="team_edit"
-            )]
-        ])
+        "اگر اطلاعات درست است تأیید کن.",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
+    return True
 
-async def team_pay(update, context):
+
+async def confirm_team(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
     query = update.callback_query
     await query.answer()
 
     room_id = context.user_data.get("team_room_id")
 
     if not room_id:
+
         await query.edit_message_text(
-            "❌ اطلاعات ثبت‌نام پیدا نشد.",
-            reply_markup=back_main()
+            "❌ اطلاعات ثبت‌نام پیدا نشد."
         )
+
         return
 
-    success, result = register_team(
-        telegram_id=query.from_user.id,
+    room = get_room(room_id)
+
+    if not room:
+
+        await query.edit_message_text(
+            "❌ روم پیدا نشد."
+        )
+
+        return
+
+    count = get_room_team_count(room_id)
+
+    if count >= room["capacity"]:
+
+        context.user_data.clear()
+
+        await query.edit_message_text(
+            "❌ ظرفیت روم تکمیل شده است."
+        )
+
+        return
+
+    create_team(
         room_id=room_id,
+        captain_telegram_id=query.from_user.id,
         player1=context.user_data["player1"],
         player2=context.user_data["player2"],
         player3=context.user_data["player3"],
-        player4=context.user_data["player4"]
+        player4=context.user_data["player4"],
     )
-
-    messages = {
-        "room_full": "❌ ظرفیت این روم تکمیل شده است.",
-        "room_closed": "❌ ثبت‌نام این روم بسته شده است.",
-        "already_registered": "⚠️ قبلاً در این روم تیم ثبت کرده‌ای.",
-        "insufficient_wallet": "❌ موجودی کیف پول برای پرداخت ورودی کافی نیست.",
-        "room_not_found": "❌ روم پیدا نشد.",
-        "user_not_found": "❌ ابتدا /start را بزن."
-    }
-
-    if not success:
-        await query.edit_message_text(
-            messages.get(result, "❌ ثبت‌نام انجام نشد."),
-            reply_markup=back_main()
-        )
-        context.user_data.clear()
-        return
 
     context.user_data.clear()
 
     await query.edit_message_text(
-        "✅ ثبت‌نام با موفقیت انجام شد.\n\n"
-        "💰 مبلغ ورودی از کیف پول کسر شد.\n"
-        f"🏆 شماره تیم: {result}",
+        "✅ اطلاعات تیم ثبت شد.\n\n"
+        "💳 مرحله پرداخت در مرحله بعدی به سیستم اضافه می‌شود.",
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton(
-                "🏆 مسابقات من",
-                callback_data="my_matches"
-            )],
-            [InlineKeyboardButton(
-                "🏠 منوی اصلی",
-                callback_data="back"
-            )]
+            [
+                InlineKeyboardButton(
+                    "📋 مسابقات من",
+                    callback_data="my_matches"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "🏠 منوی اصلی",
+                    callback_data="back"
+                )
+            ]
         ])
     )
 
@@ -453,29 +590,43 @@ async def team_pay(update, context):
 # MY MATCHES
 # =========================================================
 
-async def my_matches(update, context):
+async def my_matches(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
     query = update.callback_query
     await query.answer()
 
-    rows = get_user_rooms(query.from_user.id)
+    rooms = get_user_rooms(query.from_user.id)
 
-    if not rows:
+    if not rooms:
+
         await query.edit_message_text(
-            "🏆 مسابقات من\n\n"
+            "📋 مسابقات من\n\n"
             "هنوز در هیچ رومی ثبت‌نام نکردی.",
-            reply_markup=back_main()
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton(
+                        "🔙 منوی اصلی",
+                        callback_data="back"
+                    )
+                ]
+            ])
         )
+
         return
 
     keyboard = []
 
-    for row in rows:
+    for room in rooms:
+
         keyboard.append([
             InlineKeyboardButton(
-                f"🏠 {row['name']} | "
-                f"📅 {row['room_date']} | "
-                f"⏰ {row['room_time']}",
-                callback_data=f"myroom_{row['team_id']}"
+                f"🏠 {room['name']} | "
+                f"{room['room_date']} | "
+                f"{room['room_time']}",
+                callback_data=f"myroom_{room['id']}"
             )
         ])
 
@@ -487,276 +638,9 @@ async def my_matches(update, context):
     ])
 
     await query.edit_message_text(
-        "🏆 مسابقات من\n\n"
-        "روم موردنظرت را انتخاب کن:",
+        "📋 مسابقات من\n\n"
+        "روم موردنظر را انتخاب کن:",
         reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-
-async def my_room(update, context):
-    query = update.callback_query
-    await query.answer()
-
-    team_id = int(query.data.split("_")[1])
-    team = get_team(team_id)
-
-    if not team or team["captain_telegram_id"] != query.from_user.id:
-        await query.edit_message_text(
-            "❌ این تیم برای حساب شما نیست.",
-            reply_markup=back_main()
-        )
-        return
-
-    await query.edit_message_text(
-        f"🏠 {team['room_name']}\n"
-        f"📅 {team['room_date']}\n"
-        f"⏰ {team['room_time']}\n\n"
-        "🎮 بازیکنان:\n"
-        f"1️⃣ {team['player1']}\n"
-        f"2️⃣ {team['player2']}\n"
-        f"3️⃣ {team['player3']}\n"
-        f"4️⃣ {team['player4']}",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton(
-                "✏️ ویرایش اسامی بازیکنان",
-                callback_data=f"myedit_{team_id}"
-            )],
-            [InlineKeyboardButton(
-                "❌ انصراف از روم",
-                callback_data=f"mycancel_{team_id}"
-            )],
-            [InlineKeyboardButton(
-                "🔙 مسابقات من",
-                callback_data="my_matches"
-            )]
-        ])
-    )
-
-
-async def my_edit(update, context):
-    query = update.callback_query
-    await query.answer()
-
-    team_id = int(query.data.split("_")[1])
-    team = get_team(team_id)
-
-    if not team or team["captain_telegram_id"] != query.from_user.id:
-        await query.edit_message_text(
-            "❌ دسترسی ندارید.",
-            reply_markup=back_main()
-        )
-        return
-
-    await query.edit_message_text(
-        "✏️ بازیکنی که می‌خواهی تغییر بدهی را انتخاب کن:",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton(
-                f"1️⃣ {team['player1']}",
-                callback_data=f"myeditplayer_{team_id}_1"
-            )],
-            [InlineKeyboardButton(
-                f"2️⃣ {team['player2']}",
-                callback_data=f"myeditplayer_{team_id}_2"
-            )],
-            [InlineKeyboardButton(
-                f"3️⃣ {team['player3']}",
-                callback_data=f"myeditplayer_{team_id}_3"
-            )],
-            [InlineKeyboardButton(
-                f"4️⃣ {team['player4']}",
-                callback_data=f"myeditplayer_{team_id}_4"
-            )],
-            [InlineKeyboardButton(
-                "🔙 بازگشت",
-                callback_data=f"myroom_{team_id}"
-            )]
-        ])
-    )
-
-
-async def my_edit_player(update, context):
-    query = update.callback_query
-    await query.answer()
-
-    parts = query.data.split("_")
-
-    team_id = int(parts[1])
-    number = int(parts[2])
-
-    team = get_team(team_id)
-
-    if not team or team["captain_telegram_id"] != query.from_user.id:
-        await query.edit_message_text(
-            "❌ دسترسی ندارید.",
-            reply_markup=back_main()
-        )
-        return
-
-    context.user_data.clear()
-    context.user_data["edit_team_id"] = team_id
-    context.user_data["edit_player_number"] = number
-    context.user_data["team_state"] = "my_edit_player"
-
-    await query.edit_message_text(
-        f"🎮 آیدی جدید بازیکن {number} را وارد کن:"
-    )
-
-
-async def my_cancel(update, context):
-    query = update.callback_query
-    await query.answer()
-
-    team_id = int(query.data.split("_")[1])
-    team = get_team(team_id)
-
-    if not team or team["captain_telegram_id"] != query.from_user.id:
-        await query.edit_message_text(
-            "❌ دسترسی ندارید.",
-            reply_markup=back_main()
-        )
-        return
-
-    if not can_cancel_room(
-        team["room_date"],
-        team["room_time"]
-    ):
-        await query.edit_message_text(
-            "❌ امکان انصراف وجود ندارد.\n\n"
-            "انصراف فقط تا ۲ ساعت قبل از شروع روم مجاز است.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton(
-                    "🔙 بازگشت",
-                    callback_data=f"myroom_{team_id}"
-                )]
-            ])
-        )
-        return
-
-    await query.edit_message_text(
-        "⚠️ آیا از انصراف از این روم مطمئنی؟\n\n"
-        "مبلغ ورودی به کیف پولت برگردانده می‌شود.",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton(
-                "✅ بله، انصراف",
-                callback_data=f"mycancelconfirm_{team_id}"
-            )],
-            [InlineKeyboardButton(
-                "❌ لغو",
-                callback_data=f"myroom_{team_id}"
-            )]
-        ])
-    )
-
-
-def parse_room_datetime(room_date, room_time):
-    """
-    فرمت:
-    شنبه ۲۵/۰۵
-    ساعت:
-    23:00
-
-    سال جاری شمسی فرض می‌شود.
-    برای جلوگیری از وابستگی به پکیج اضافی،
-    تاریخ شمسی به صورت تقریبی برای کنترل ۲ ساعت استفاده می‌شود.
-    """
-
-    numbers = re.findall(r"\d+", room_date)
-
-    if len(numbers) < 2:
-        return None
-
-    day = int(numbers[-2])
-    month = int(numbers[-1])
-
-    time_match = re.search(r"(\d{1,2}):(\d{2})", room_time)
-
-    if not time_match:
-        return None
-
-    hour = int(time_match.group(1))
-    minute = int(time_match.group(2))
-
-    # تبدیل تقریبی جلالی به میلادی برای کنترل زمانی
-    # سال جاری میلادی + ماه شمسی
-    now = datetime.now()
-
-    if month <= 6:
-        month_offset = month + 2
-    else:
-        month_offset = month + 2
-
-    year = now.year
-
-    try:
-        return datetime(
-            year,
-            max(1, min(12, month_offset - 1)),
-            min(day, 28),
-            hour,
-            minute
-        )
-    except ValueError:
-        return None
-
-
-def can_cancel_room(room_date, room_time):
-    room_dt = parse_room_datetime(room_date, room_time)
-
-    if not room_dt:
-        return True
-
-    return datetime.now() <= room_dt - timedelta(hours=2)
-
-
-async def my_cancel_confirm(update, context):
-    query = update.callback_query
-    await query.answer()
-
-    team_id = int(query.data.split("_")[1])
-    team = get_team(team_id)
-
-    if not team or team["captain_telegram_id"] != query.from_user.id:
-        await query.edit_message_text(
-            "❌ دسترسی ندارید.",
-            reply_markup=back_main()
-        )
-        return
-
-    if not can_cancel_room(
-        team["room_date"],
-        team["room_time"]
-    ):
-        await query.edit_message_text(
-            "❌ زمان انصراف گذشته است.",
-            reply_markup=back_main()
-        )
-        return
-
-    success, result = cancel_team(
-        team_id,
-        query.from_user.id
-    )
-
-    if not success:
-        await query.edit_message_text(
-            "❌ انصراف انجام نشد.",
-            reply_markup=back_main()
-        )
-        return
-
-    await query.edit_message_text(
-        "✅ با موفقیت از روم انصراف دادی.\n\n"
-        f"💰 مبلغ {result:,} تومان به کیف پولت برگشت داده شد.",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton(
-                "🏆 مسابقات من",
-                callback_data="my_matches"
-            )],
-            [InlineKeyboardButton(
-                "🏠 منوی اصلی",
-                callback_data="back"
-            )]
-        ])
     )
 
 
@@ -764,313 +648,128 @@ async def my_cancel_confirm(update, context):
 # WALLET
 # =========================================================
 
-async def wallet(update, context):
+async def wallet(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
     query = update.callback_query
     await query.answer()
 
-    balance = get_wallet(query.from_user.id)
-    bank = get_bank_account(query.from_user.id)
-
-    bank_text = bank if bank else "ثبت نشده"
+    balance = get_wallet(
+        query.from_user.id
+    )
 
     await query.edit_message_text(
         "💰 کیف پول\n\n"
-        f"موجودی: {balance:,} تومان\n\n"
-        f"🏦 حساب بانکی:\n{bank_text}",
+        f"موجودی: {balance:,} تومان",
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton(
-                "➕ افزایش موجودی",
-                callback_data="wallet_add"
-            )],
-            [InlineKeyboardButton(
-                "💸 برداشت",
-                callback_data="wallet_withdraw"
-            )],
-            [InlineKeyboardButton(
-                "🏦 تغییر حساب بانکی",
-                callback_data="wallet_bank"
-            )],
-            [InlineKeyboardButton(
-                "🔙 منوی اصلی",
-                callback_data="back"
-            )]
-        ])
-    )
-
-
-async def wallet_add(update, context):
-    query = update.callback_query
-    await query.answer()
-
-    await query.edit_message_text(
-        "➕ افزایش موجودی\n\n"
-        "درگاه پرداخت در مرحله بعدی به این قسمت متصل می‌شود.",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton(
-                "🔙 کیف پول",
-                callback_data="wallet"
-            )]
-        ])
-    )
-
-
-async def wallet_bank(update, context):
-    query = update.callback_query
-    await query.answer()
-
-    context.user_data["wallet_state"] = "bank"
-
-    await query.edit_message_text(
-        "🏦 شماره حساب / شبا جدید را وارد کن:"
-    )
-
-
-async def wallet_withdraw(update, context):
-    query = update.callback_query
-    await query.answer()
-
-    bank = get_bank_account(query.from_user.id)
-
-    if not bank:
-        await query.edit_message_text(
-            "❌ ابتدا باید حساب بانکی خودت را ثبت کنی.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton(
-                    "🏦 ثبت حساب بانکی",
+            [
+                InlineKeyboardButton(
+                    "➕ افزایش موجودی",
+                    callback_data="wallet_charge"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "💸 برداشت",
+                    callback_data="wallet_withdraw"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "🏦 تغییر حساب بانکی",
                     callback_data="wallet_bank"
-                )],
-                [InlineKeyboardButton(
-                    "🔙 کیف پول",
-                    callback_data="wallet"
-                )]
-            ])
-        )
-        return
-
-    context.user_data["wallet_state"] = "withdraw"
-
-    await query.edit_message_text(
-        "💸 برداشت\n\n"
-        "مبلغ موردنظر برای برداشت را به تومان وارد کن:"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "🔙 منوی اصلی",
+                    callback_data="back"
+                )
+            ]
+        ])
     )
 
 
 # =========================================================
-# GENERAL TEXT
+# RULES
 # =========================================================
 
-async def handle_user_text(update, context):
-    wallet_state = context.user_data.get("wallet_state")
+async def rules(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
-    if wallet_state == "bank":
-        value = update.message.text.strip()
-
-        if len(value) < 5:
-            await update.message.reply_text(
-                "❌ شماره حساب معتبر نیست."
-            )
-            return True
-
-        set_bank_account(
-            update.effective_user.id,
-            value
-        )
-
-        context.user_data.pop("wallet_state", None)
-
-        await update.message.reply_text(
-            "✅ حساب بانکی با موفقیت ذخیره شد.",
-            reply_markup=main_menu()
-        )
-        return True
-
-    if wallet_state == "withdraw":
-        try:
-            amount = int(
-                update.message.text.replace(",", "").replace("٬", "")
-            )
-
-            if amount <= 0:
-                raise ValueError
-
-        except ValueError:
-            await update.message.reply_text(
-                "❌ مبلغ را به صورت عدد وارد کن."
-            )
-            return True
-
-        success, result = create_withdrawal(
-            update.effective_user.id,
-            amount
-        )
-
-        messages = {
-            "no_bank": "❌ ابتدا حساب بانکی ثبت کن.",
-            "insufficient_wallet": "❌ موجودی کافی نیست.",
-            "pending_exists": "⚠️ یک درخواست برداشت در حال بررسی داری.",
-            "invalid_amount": "❌ مبلغ نامعتبر است."
-        }
-
-        if not success:
-            await update.message.reply_text(
-                messages.get(
-                    result,
-                    "❌ درخواست برداشت ثبت نشد."
-                )
-            )
-            return True
-
-        context.user_data.pop("wallet_state", None)
-
-        admin_id = os.getenv("ADMIN_ID")
-
-        if admin_id:
-            from telegram import Bot
-
-            try:
-                user = update.effective_user
-                bank = get_bank_account(user.id)
-
-                await context.bot.send_message(
-                    chat_id=int(admin_id),
-                    text=(
-                        "💸 درخواست برداشت جدید\n\n"
-                        f"👤 کاربر: {user.first_name or '-'}\n"
-                        f"🔗 Username: @{user.username or '-'}\n"
-                        f"🆔 Telegram ID: {user.id}\n\n"
-                        f"💰 مبلغ: {amount:,} تومان\n"
-                        f"🏦 حساب: {bank}\n\n"
-                        f"🆔 درخواست: {result}"
-                    ),
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton(
-                            "💸 مشاهده درخواست",
-                            callback_data=f"adm_withdraw_{result}"
-                        )]
-                    ])
-                )
-            except Exception as error:
-                print("WITHDRAW ADMIN MESSAGE ERROR:", repr(error))
-
-        await update.message.reply_text(
-            "✅ درخواست برداشت ثبت شد.\n\n"
-            f"💰 مبلغ: {amount:,} تومان\n"
-            "⏳ وضعیت: در انتظار بررسی",
-            reply_markup=main_menu()
-        )
-
-        return True
-
-    team_state = context.user_data.get("team_state")
-
-    if team_state:
-        if team_state == "edit_player":
-            number = context.user_data["edit_player_number"]
-            value = update.message.text.strip()
-
-            context.user_data[f"player{number}"] = value
-            context.user_data["team_state"] = "confirm"
-
-            room_id = context.user_data["team_room_id"]
-            room = get_room(room_id)
-
-            await update.message.reply_text(
-                "✅ بازیکن ویرایش شد.\n\n"
-                f"1️⃣ {context.user_data['player1']}\n"
-                f"2️⃣ {context.user_data['player2']}\n"
-                f"3️⃣ {context.user_data['player3']}\n"
-                f"4️⃣ {context.user_data['player4']}",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton(
-                        "💳 پرداخت و ثبت‌نام",
-                        callback_data="team_pay"
-                    )],
-                    [InlineKeyboardButton(
-                        "✏️ ویرایش",
-                        callback_data="team_edit"
-                    )]
-                ])
-            )
-            return True
-
-        if team_state == "my_edit_player":
-            team_id = context.user_data["edit_team_id"]
-            number = context.user_data["edit_player_number"]
-            value = update.message.text.strip()
-
-            team = get_team(team_id)
-
-            if not team or team["captain_telegram_id"] != update.effective_user.id:
-                context.user_data.clear()
-                await update.message.reply_text(
-                    "❌ دسترسی ندارید.",
-                    reply_markup=main_menu()
-                )
-                return True
-
-            update_team_player(
-                team_id,
-                number,
-                value
-            )
-
-            context.user_data.clear()
-
-            await update.message.reply_text(
-                "✅ آیدی بازیکن با موفقیت ویرایش شد.",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton(
-                        "🏆 مسابقات من",
-                        callback_data="my_matches"
-                    )],
-                    [InlineKeyboardButton(
-                        "🏠 منوی اصلی",
-                        callback_data="back"
-                    )]
-                ])
-            )
-            return True
-
-        return await handle_team_text(update, context)
-
-    return False
-
-
-# =========================================================
-# RULES / SUPPORT
-# =========================================================
-
-async def rules(update, context):
     query = update.callback_query
     await query.answer()
 
     await query.edit_message_text(
-        "📜 قوانین\n\n"
-        "بخش قوانین در مرحله بعد تکمیل می‌شود.",
-        reply_markup=back_main()
+        "📜 قوانین مسابقات\n\n"
+        "قوانین در حال تکمیل است.",
+        reply_markup=InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(
+                    "🔙 منوی اصلی",
+                    callback_data="back"
+                )
+            ]
+        ])
     )
 
 
-async def support(update, context):
+# =========================================================
+# SUPPORT
+# =========================================================
+
+async def support(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
     query = update.callback_query
     await query.answer()
 
     await query.edit_message_text(
         "🎧 پشتیبانی\n\n"
-        "بخش پشتیبانی در مرحله بعد تکمیل می‌شود.",
-        reply_markup=back_main()
+        "پشتیبانی در حال آماده‌سازی است.",
+        reply_markup=InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(
+                    "🔙 منوی اصلی",
+                    callback_data="back"
+                )
+            ]
+        ])
     )
 
 
-async def back(update, context):
+# =========================================================
+# BACK
+# =========================================================
+
+async def back(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
     query = update.callback_query
     await query.answer()
 
-    context.user_data.clear()
+    user = get_user(
+        query.from_user.id
+    )
+
+    if not user or not user["last_name"] or not user["phone"]:
+
+        await query.edit_message_text(
+            "❌ ابتدا ثبت‌نام خود را کامل کن."
+        )
+
+        return
 
     await query.edit_message_text(
-        "🎮 منوی اصلی 1BD PUBG\n\n"
-        "گزینه موردنظرت رو انتخاب کن:",
+        "🎮 پنل کاربری 1BD PUBG",
         reply_markup=main_menu()
     )
 
@@ -1079,72 +778,47 @@ async def back(update, context):
 # BUTTON HANDLER
 # =========================================================
 
-async def button_handler(update, context):
-    query = update.callback_query
-    data = query.data
+async def button_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
-    if data.startswith("adm_"):
-        await admin_button_handler(update, context)
+    query = update.callback_query
+
+    if query.data.startswith("adm_"):
+
+        await admin_button_handler(
+            update,
+            context
+        )
+
         return
 
-    if data == "register":
+    if query.data == "register":
         await register(update, context)
 
-    elif data.startswith("room_"):
+    elif query.data.startswith("room_"):
         await room_details(update, context)
 
-    elif data.startswith("team_start_"):
-        await team_start(update, context)
+    elif query.data.startswith("team_register_"):
+        await team_register(update, context)
 
-    elif data == "team_edit":
-        await team_edit(update, context)
+    elif query.data == "confirm_team":
+        await confirm_team(update, context)
 
-    elif data.startswith("edit_player_"):
-        await edit_player(update, context)
-
-    elif data == "team_review":
-        await team_review(update, context)
-
-    elif data == "team_pay":
-        await team_pay(update, context)
-
-    elif data == "my_matches":
+    elif query.data == "my_matches":
         await my_matches(update, context)
 
-    elif data.startswith("myroom_"):
-        await my_room(update, context)
-
-    elif data.startswith("myedit_"):
-        await my_edit(update, context)
-
-    elif data.startswith("myeditplayer_"):
-        await my_edit_player(update, context)
-
-    elif data.startswith("mycancel_"):
-        await my_cancel(update, context)
-
-    elif data.startswith("mycancelconfirm_"):
-        await my_cancel_confirm(update, context)
-
-    elif data == "wallet":
+    elif query.data == "wallet":
         await wallet(update, context)
 
-    elif data == "wallet_add":
-        await wallet_add(update, context)
-
-    elif data == "wallet_bank":
-        await wallet_bank(update, context)
-
-    elif data == "wallet_withdraw":
-        await wallet_withdraw(update, context)
-
-    elif data == "rules":
+    elif query.data == "rules":
         await rules(update, context)
 
-    elif data == "support":
+    elif query.data == "support":
         await support(update, context)
 
-    elif data == "back":
+    elif query.data == "back":
         await back(update, context)
 
 
@@ -1152,7 +826,26 @@ async def button_handler(update, context):
 # TEXT HANDLER
 # =========================================================
 
-async def text_handler(update, context):
+async def text_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    handled = await registration_text(
+        update,
+        context
+    )
+
+    if handled:
+        return
+
+    handled = await team_text(
+        update,
+        context
+    )
+
+    if handled:
+        return
 
     handled = await handle_admin_message(
         update,
@@ -1162,7 +855,17 @@ async def text_handler(update, context):
     if handled:
         return
 
-    handled = await handle_user_text(
+
+# =========================================================
+# CONTACT HANDLER
+# =========================================================
+
+async def contact_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    handled = await registration_contact(
         update,
         context
     )
@@ -1182,18 +885,38 @@ def main():
             "BOT_TOKEN تنظیم نشده است."
         )
 
-    app = Application.builder().token(TOKEN).build()
-
-    app.add_handler(
-        CommandHandler("start", start)
+    app = (
+        Application
+        .builder()
+        .token(TOKEN)
+        .build()
     )
 
     app.add_handler(
-        CommandHandler("admin", admin_panel)
+        CommandHandler(
+            "start",
+            start
+        )
     )
 
     app.add_handler(
-        CallbackQueryHandler(button_handler)
+        CommandHandler(
+            "admin",
+            admin_panel
+        )
+    )
+
+    app.add_handler(
+        CallbackQueryHandler(
+            button_handler
+        )
+    )
+
+    app.add_handler(
+        MessageHandler(
+            filters.CONTACT,
+            contact_handler
+        )
     )
 
     app.add_handler(
@@ -1203,7 +926,9 @@ def main():
         )
     )
 
-    print("🤖 ربات 1BD اجرا شد...")
+    print(
+        "🤖 ربات 1BD اجرا شد..."
+    )
 
     app.run_polling()
 

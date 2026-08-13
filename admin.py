@@ -32,6 +32,7 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
 
     await update.message.reply_text(
+        "سلام مهیار 👋\n\n"
         "👑 پنل مدیریت 1BD PUBG\n\n"
         "یک گزینه را انتخاب کن:",
         reply_markup=admin_menu()
@@ -47,7 +48,6 @@ async def admin_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.edit_message_text("⛔ دسترسی غیرمجاز.")
         return
 
-    # ساخت مسابقه
     if query.data == "adm_create_match":
 
         context.user_data.clear()
@@ -69,7 +69,6 @@ async def admin_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             ])
         )
 
-    # ساخت روم
     elif query.data == "adm_create_room":
 
         await query.edit_message_text(
@@ -83,7 +82,6 @@ async def admin_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             ])
         )
 
-    # لیست مسابقات
     elif query.data == "adm_matches":
 
         matches = get_matches()
@@ -116,7 +114,6 @@ async def admin_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             ])
         )
 
-    # لغو
     elif query.data == "adm_cancel":
 
         context.user_data.clear()
@@ -126,13 +123,13 @@ async def admin_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             reply_markup=admin_menu()
         )
 
-    # بازگشت
     elif query.data == "adm_back":
 
         context.user_data.clear()
 
         await query.edit_message_text(
-            "👑 پنل مدیریت 1BD PUBG",
+            "👑 پنل مدیریت 1BD PUBG\n\n"
+            "یک گزینه را انتخاب کن:",
             reply_markup=admin_menu()
         )
 
@@ -149,9 +146,11 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
         name = update.message.text.strip()
 
         if not name:
+
             await update.message.reply_text(
                 "❌ اسم مسابقه نمی‌تواند خالی باشد."
             )
+
             return True
 
         try:

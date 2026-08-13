@@ -17,8 +17,8 @@ def is_admin(user_id):
 
 def admin_menu():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎮 مسابقات", callback_data="adm_matches")],
-        [InlineKeyboardButton("🏠 روم‌ها", callback_data="adm_rooms")],
+        [InlineKeyboardButton("🎮 ساخت مسابقه", callback_data="adm_create_match")],
+        [InlineKeyboardButton("🏠 مدیریت روم‌ها", callback_data="adm_rooms")],
         [InlineKeyboardButton("👥 بازیکنان", callback_data="adm_players")],
         [InlineKeyboardButton("💰 کیف پول", callback_data="adm_wallets")],
         [InlineKeyboardButton("📊 آمار", callback_data="adm_stats")],
@@ -35,7 +35,7 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         "👑 پنل مدیریت 1BD PUBG\n\n"
-        "یک بخش را انتخاب کن:",
+        "یک گزینه را انتخاب کن:",
         reply_markup=admin_menu()
     )
 
@@ -49,48 +49,34 @@ async def admin_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.edit_message_text("⛔ دسترسی غیرمجاز.")
         return
 
-    if query.data == "adm_matches":
-
-        await query.edit_message_text(
-            "🎮 مدیریت مسابقات",
-            reply_markup=InlineKeyboardMarkup([
-                [
-                    InlineKeyboardButton(
-                        "➕ ساخت مسابقه",
-                        callback_data="adm_create_match"
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        "🔙 پنل مدیریت",
-                        callback_data="adm_back"
-                    )
-                ]
-            ])
-        )
-
-    elif query.data == "adm_create_match":
+    if query.data == "adm_create_match":
 
         context.user_data.clear()
         context.user_data["admin_state"] = "waiting_match_name"
 
         await query.edit_message_text(
             "🎮 ساخت مسابقه\n\n"
-            "اسم مسابقه را بفرست:\n\n"
-            "اسم کاملاً آزاده؛ مثلاً:\n"
-            "• 1\n"
-            "• مسابقه جمعه\n"
-            "• PUBG NIGHT 01\n"
-            "• هر اسمی که خواستی"
+            "✏️ لطفاً اسم مسابقه را وارد کن:\n\n"
+            "مثال:\n"
+            "مسابقه جمعه شب\n"
+            "یا حتی:\n"
+            "1",
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton(
+                        "❌ لغو",
+                        callback_data="adm_cancel"
+                    )
+                ]
+            ])
         )
 
-    elif query.data == "adm_back":
+    elif query.data == "adm_cancel":
 
         context.user_data.clear()
 
         await query.edit_message_text(
-            "👑 پنل مدیریت 1BD PUBG\n\n"
-            "یک بخش را انتخاب کن:",
+            "👑 پنل مدیریت",
             reply_markup=admin_menu()
         )
 
@@ -98,7 +84,7 @@ async def admin_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
         await query.edit_message_text(
             "🏠 مدیریت روم‌ها\n\n"
-            "این بخش را بعد از ساخت مسابقه فعال می‌کنیم.",
+            "این بخش بعد از ساخت مسابقه فعال می‌شود.",
             reply_markup=InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton(
@@ -112,8 +98,8 @@ async def admin_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     elif query.data == "adm_players":
 
         await query.edit_message_text(
-            "👥 مدیریت بازیکنان\n\n"
-            "به‌زودی.",
+            "👥 بازیکنان\n\n"
+            "این بخش به‌زودی فعال می‌شود.",
             reply_markup=InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton(
@@ -127,8 +113,8 @@ async def admin_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     elif query.data == "adm_wallets":
 
         await query.edit_message_text(
-            "💰 مدیریت کیف پول\n\n"
-            "به‌زودی.",
+            "💰 کیف پول\n\n"
+            "این بخش به‌زودی فعال می‌شود.",
             reply_markup=InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton(
@@ -143,7 +129,7 @@ async def admin_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
         await query.edit_message_text(
             "📊 آمار\n\n"
-            "به‌زودی.",
+            "این بخش به‌زودی فعال می‌شود.",
             reply_markup=InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton(
@@ -154,26 +140,33 @@ async def admin_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             ])
         )
 
+    elif query.data == "adm_back":
+
+        context.user_data.clear()
+
+        await query.edit_message_text(
+            "👑 پنل مدیریت 1BD PUBG\n\n"
+            "یک گزینه را انتخاب کن:",
+            reply_markup=admin_menu()
+        )
+
 
 async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not is_admin(update.effective_user.id):
         return False
 
-    state = context.user_data.get("admin_state")
-
-    if state != "waiting_match_name":
+    if context.user_data.get("admin_state") != "waiting_match_name":
         return False
 
-    name = update.message.text
+    name = update.message.text.strip()
 
     if not name:
         await update.message.reply_text(
-            "❌ اسم مسابقه نمی‌تواند خالی باشد."
+            "❌ اسم مسابقه خالی است.\n"
+            "لطفاً اسم مسابقه را وارد کن."
         )
         return True
-
-    name = name.strip()
 
     try:
 
@@ -182,20 +175,19 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
         context.user_data.clear()
 
         await update.message.reply_text(
-            "✅ مسابقه با موفقیت ساخته شد!\n\n"
-            f"🎮 نام مسابقه:\n{name}\n\n"
-            f"🆔 ID مسابقه: {match_id}\n\n"
-            "حالا می‌تونیم روم‌های این مسابقه رو بسازیم.",
+            "✅ مسابقه ساخته شد!\n\n"
+            f"🎮 اسم مسابقه: {name}\n"
+            f"🆔 شماره مسابقه: {match_id}",
             reply_markup=admin_menu()
         )
 
-    except Exception as error:
+    except Exception as e:
 
-        print("ADMIN CREATE MATCH ERROR:", repr(error))
+        print("CREATE MATCH ERROR:", repr(e))
 
         await update.message.reply_text(
-            "❌ هنگام ساخت مسابقه خطایی رخ داد.\n\n"
-            "جزئیات خطا در Logs ثبت شد."
+            "❌ ساخت مسابقه انجام نشد.\n"
+            "Logs را بررسی کن."
         )
 
     return True
